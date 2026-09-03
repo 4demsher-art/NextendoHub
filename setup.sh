@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 
 BOREALIS_REPO="https://github.com/natinusala/borealis"
 # classic borealis (plain-Makefile friendly, brls::TabFrame / brls::List API).
-BOREALIS_REF="c89f42a"          # a known-good pre-2.0 commit; bump if you like
+BOREALIS_REF="legacy"          # Borealis legacy branch; compatible with the classic Makefile/API used by this project
 
 if [ ! -d lib/borealis/library ]; then
   echo "==> fetching borealis ($BOREALIS_REF)"
