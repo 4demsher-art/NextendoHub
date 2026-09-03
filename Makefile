@@ -41,10 +41,15 @@ LDFLAGS   = -specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir 
 
 # curl (mbedTLS) first, then whatever borealis.mk added, then libnx
 LIBS    := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz
-LIBDIRS := $(PORTLIBS) $(LIBNX)
+BOREALIS_PATH := $(TOPDIR)/lib/borealis
+
+LIBDIRS := $(PORTLIBS) $(LIBNX) $(BOREALIS_PATH)
+
+# Borealis legacy: keep its include tree explicit so <borealis.hpp> resolves.
+INCLUDES += $(BOREALIS_PATH)/library/include
 
 # borealis: appends to SOURCES / INCLUDES / CFLAGS / CXXFLAGS / LIBS / LIBDIRS
-include $(TOPDIR)/lib/borealis/library/borealis.mk
+include $(BOREALIS_PATH)/library/borealis.mk
 
 # std::thread/mutex + libnx last
 LIBS += -lpthread -lnx

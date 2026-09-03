@@ -6,13 +6,12 @@ cd "$(dirname "$0")"
 
 BOREALIS_REPO="https://github.com/natinusala/borealis"
 # classic borealis (plain-Makefile friendly, brls::TabFrame / brls::List API).
-BOREALIS_REF="legacy"          # Borealis legacy branch; compatible with the classic Makefile/API used by this project
+BOREALIS_REF="legacy"          # Old Borealis API used by this project
 
 if [ ! -d lib/borealis/library ]; then
   echo "==> fetching borealis ($BOREALIS_REF)"
   rm -rf lib/borealis
-  git clone "$BOREALIS_REPO" lib/borealis
-  git -C lib/borealis checkout "$BOREALIS_REF"
+  git clone --branch "$BOREALIS_REF" --single-branch "$BOREALIS_REPO" lib/borealis
   git -C lib/borealis submodule update --init --recursive
 fi
 
