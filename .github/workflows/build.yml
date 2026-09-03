@@ -21,6 +21,23 @@ jobs:
           chmod +x setup.sh
           ./setup.sh
 
+      - name: Diagnose Borealis
+        shell: bash
+        run: |
+          echo "Borealis files:"
+          find lib/borealis -maxdepth 5 -type f \( -name 'borealis.hpp' -o -name 'borealis.h' \) -print
+          HEADER="$(find "$GITHUB_WORKSPACE/lib/borealis" -type f -name 'borealis.hpp' -print -quit)"
+          if [ -z "$HEADER" ]; then
+            echo "ERROR: borealis.hpp was not found after setup.sh"
+            echo "Top-level Borealis tree:"
+            find lib/borealis -maxdepth 3 -type d -print | head -100
+            exit 1
+          fi
+          INC="$(dirname "$HEADER")"
+          echo "Found borealis.hpp: $HEADER"
+          echo "Using include directory: $INC"
+          echo "BOREALIS_INCLUDE=$INC" >> "$GITHUB_ENV"
+
       - name: Build NRO
         shell: bash
         run: |
@@ -28,7 +45,7 @@ jobs:
           export DEVKITA64=/opt/devkitpro/devkitA64
           export PATH="$DEVKITA64/bin:/opt/devkitpro/tools/bin:$PATH"
           make clean || true
-          make -j2
+          make -j2 CXXFLAGS="-I$BOREALIS_INCLUDE"
           test -f NextendoHub.nro
           ls -lh NextendoHub.nro
 
