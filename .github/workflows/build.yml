@@ -1,0 +1,33 @@
+name: Build NextendoHub NRO
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkita64:20260219
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build NRO
+        shell: bash
+        run: |
+          export DEVKITPRO=/opt/devkitpro
+          export DEVKITA64=/opt/devkitpro/devkitA64
+          export PATH="$DEVKITA64/bin:/opt/devkitpro/tools/bin:$PATH"
+          make clean || true
+          make -j2
+          test -f NextendoHub.nro
+
+      - name: Upload NRO
+        uses: actions/upload-artifact@v4
+        with:
+          name: NextendoHub-NRO
+          path: NextendoHub.nro
+          if-no-files-found: error
