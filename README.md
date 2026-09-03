@@ -1,32 +1,37 @@
 # NextendoHub-nx
 
-Native Nintendo Switch homebrew client for nextendo.network — the Switch port of
-NextendoHub. **Build needs devkitPro + libnx** (see `PLAN.md` for why a `.nro`
-can't be produced on Windows without it).
+The **full** NextendoHub app as native Nintendo Switch homebrew — borealis GUI
+(Switch-native look, themed, real fonts), every feature of the desktop build.
 
-## Quick start (with devkitPro installed)
+**Build needs devkitPro + libnx + borealis** — a `.nro` can't be produced on
+Windows without the toolchain. See `PLAN.md`.
+
+## Quick start
 
 ```bash
-(dkp-)pacman -S switch-dev switch-curl switch-mbedtls switch-zlib
+(dkp-)pacman -S switch-dev switch-curl switch-mbedtls switch-zlib \
+               switch-glfw switch-glm switch-mesa switch-libdrm_nouveau
 cd NextendoHub-nx
-make            # -> NextendoHub.nro
+./setup.sh        # once: git clone borealis + stage resources
+make             # -> NextendoHub.nro
 ```
 
-Put `NextendoHub.nro` on the SD card under `sdmc:/switch/` and run it from the
-Homebrew Menu. For network access, launch it via a full hbmenu / title-takeover
-(hold R on a game), not applet mode.
+Put `NextendoHub.nro` under `sdmc:/switch/` and launch from the Homebrew Menu via
+a full launch / title-takeover (hold R on a game) so it has network.
 
-## Controls
+## Tabs
 
-- **L / R** — switch screen (Server status · In game now · Friends)
-- **X** — refresh
-- **Y** — sign in (on the Friends screen, when signed out) — on-screen keyboard
-- **−** (Minus) — sign out
-- **+** (Plus) — exit
+- **In game now** — live per-game player counts (15s, no account needed)
+- **Server status** — status.nextendo.network monitors, up/down/ping (60s)
+- **Friends** — login / register / multi-account · presence + game names ·
+  requests (accept/decline) · add by friend code
+- **Settings** — theme (system/light/dark) · language (en/fr/es) · profile
+  (username, country, avatar gallery, colour) · cloud saves (download to SD /
+  delete) · favourite mods · Made-by credit
+
+**X** = refresh the current tab.
 
 ## Status
 
-Done: init, TLS-verified HTTP (`httpJson`), SD token store, swkbd login, and the
-three read-only screens. Everything else (profile edit, saves, avatar gallery,
-multi-account, a real GUI) re-uses `httpJson()` — the endpoint list and the
-recommended `borealis` GUI library are in `PLAN.md`.
+Everything from the exe is wired (see the parity table in `PLAN.md`). Not
+compiled here — expect a brief shakeout pass on a devkitPro machine.

@@ -1,97 +1,92 @@
-# NextendoHub → Switch homebrew (`.nro`) — plan & build
+# NextendoHub → Switch homebrew (`.nro`) — full port
 
 ## Why there's no `.nro` in this download
 
-A `.nro` is a **Nintendo Switch homebrew executable**: an ELF for aarch64 wrapped
-by `elf2nro`, with an `.nacp` (title/author/version) and a JPEG icon. Producing
-one requires **devkitPro** (`devkitA64` cross-GCC + **libnx** + `elf2nro` /
-`nacptool`). That toolchain is not on this Windows machine, and — as with the
-`.ipa` — you cannot cross-build it from a normal Windows box without it.
+Building a `.nro` needs **devkitPro** (`devkitA64` + **libnx** + `elf2nro`/`nacptool`),
+not installed on this Windows box — and you can't cross-build it from Windows
+without it. Electron/HTML can't run under homebrew either (no Node, can't bundle a
+browser), so this is a native **libnx + borealis** rewrite, not a repackage.
 
-Electron/HTML also can't run under homebrew: no Node, and you can't bundle a
-browser engine. So NextendoHub becomes a **native libnx app**, not a repackage.
+## What this is
 
-## The two ways to port it
+The **whole exe app**, ported. borealis draws the UI (Switch-native look: themed
+header/footer, list rows, sections, dropdowns, dialogs, on-screen keyboard, auto
+light/dark, real fonts). `source/net.cpp` is the entire `window.nextendo.*`
+bridge — every `ipcMain.handle` from the desktop `main.js` has an equivalent.
 
-| | Native libnx UI (recommended) | Web-applet hybrid |
-|---|---|---|
-| How | Draw the UI yourself. Text console (this scaffold) or a real GUI with **borealis** / **deko3d + nanovg**. Networking via **libcurl** (this scaffold). | Ship the HTML in `romfs`, run a tiny HTTP server inside the `.nro`, and open the Switch **web-browser applet** (`libnx` `web`/`WebSession`) at `http://127.0.0.1:<port>`; a shim posts to the local server which does the real requests. |
-| Renderer reuse | none — rewrite screens | almost 100% (`www/index.html` unchanged, `bridge-shim.js` talks to the local server) |
-| Reliability | solid; this is how most Switch homebrew is built | fragile — the browser applet is heavily locked down (whitelist, no reliable `127.0.0.1`, no persistent storage, JS gaps). Often needs the "internet browser" hidden applet and specific firmware. Treat as experimental. |
-| Effort | medium–large (port every screen) | small if the applet cooperates, otherwise a dead end |
+### Feature parity
 
-This scaffold takes the **native** path with a **console UI** so it builds with
-just `libnx + switch-curl` (no GUI-library dependency) and already does something
-real.
-
-## What the scaffold already does
-
-`source/main.cpp` is a working libnx client:
-
-- `socketInitializeDefault()` + **libcurl** (mbedTLS backend) with proper TLS
-  verification against `romfs:/cacert.pem` (Mozilla CA bundle, bundled).
-- `httpJson(method, path, body, bearer)` — the `window.nextendo.*` bridge / the
-  Swift `NextendoBridge` / the Electron `nxRequest`, ported to C.
-- Token store on the SD card at `sdmc:/switch/nextendo-hub/session.dat`
-  (the Switch has no Keychain/DPAPI — see "Security" below).
-- **swkbd** on-screen keyboard login → `POST /api/login` → token saved.
-- Three read-only screens, L/R to switch, X to refresh, + to exit:
-  - **Server status** — `status.nextendo.network` status-page + heartbeat, monitor list.
-  - **In game now** — `/api/online-counts`, per-game player counts (works with **no account**).
-  - **Friends** — `/api/friends` with the bearer token; online / in-game / offline.
-
-## What's left (all re-use `httpJson` the same way)
-
-- Profile: `GET/PUT /api/profile` (full-document PUT, like the desktop fix),
-  `PUT /api/username`, `GET/POST /api/country`.
-- Cloud saves: `GET /api/saves`, `DELETE /api/save/<id>`, and download
-  (`GET /api/save/<id>` → write to `sdmc:/switch/nextendo-hub/saves/…zip`).
-- Avatar gallery: `GET /assets/avatars/manifest.json` + PNG bytes.
-- Multi-account, register (`POST /api/register`).
-- A real GUI: swap the `printf` console for **borealis**
-  (`https://github.com/natinusala/borealis`) — it renders a Switch-style UI and
-  maps cleanly onto the tab layout (Status / Online / Friends / Settings).
+| Desktop feature | Switch |
+|---|---|
+| **Servers tab** — Uptime Kuma status, banner, per-group monitors, 60s poll | ✅ `LiveList`, worker-thread fetch, rebuild on UI thread, **X** to refresh |
+| **Online tab** — in-game player counts, 15s poll | ✅ `LiveList` |
+| **Login / Register** | ✅ multi-field via `brls::Swkbd` chained; password rules + confirm |
+| **Multi-account** — switcher, add, sign out | ✅ `config.json` on SD, `brls::Dropdown` switcher |
+| **Friends** — presence, game names, favourites sort, tally | ✅ `/api/friends` + `/api/gameinfo` resolution |
+| **Friend requests** — accept / decline | ✅ row → `brls::Dialog` |
+| **Add friend by code** | ✅ swkbd |
+| **Profile: username** — live availability + `PUT /api/username` | ✅ swkbd + `usernameAvailable()` |
+| **Profile: country (MK8 flag)** | ✅ `brls::Dropdown` from `/api/country` (ISO codes) → `POST /api/country` |
+| **Profile: picture — gallery of 165 Switch avatars** | ✅ `/assets/avatars/manifest.json` → list → pick → PNG bytes → `PUT /api/profile` (`image` base64 + `avatar:{"char":…}`) |
+| **Profile: colour swatches** | ✅ dropdown of the 12 hex colours → `PUT /api/profile` |
+| **Cloud saves** — quota, download, delete, gate messages | ✅ `/api/saves`; download → `sdmc:/switch/nextendo-hub/saves/*.zip`; delete via dialog |
+| **Favourite mods** | ✅ `/api/mod-favorites` (best effort) |
+| **Settings: theme** (system/light/dark) | ✅ `brls::Application::setThemeVariant` + persisted |
+| **Settings: language** (en/fr/es) | ✅ `i18n.hpp`, persisted; reopen tabs to fully re-translate |
+| **Settings: launch at startup** | shown as **"not applicable on Switch"** |
+| **"Made by adxmm / Founders JuanBrew · Kazu" credit** | ✅ About section; friend code auto-captured when adxmm signs in |
+| **Full-document `PUT /api/profile`** (the desktop persistence fix) | ✅ ported in `net::profileSave` |
+| **XSS hardening** | N/A — no HTML renderer; borealis draws text, not markup |
+| Tray / close-to-tray | N/A on Switch |
+| Profile **photo upload** (file picker) | not ported — needs an SD file browser + PNG decode/JPEG encode. Gallery covers avatars. |
+| Live async everywhere | Status/Online are async; the account screens fetch synchronously on open (brief pause) — move to a worker for polish. |
 
 ## Build
 
-Install devkitPro (Windows: the graphical installer + MSYS2; or use the
-`devkitpro/devkita64` Docker image), then:
-
 ```bash
-(dkp-)pacman -S switch-dev switch-curl switch-mbedtls switch-zlib
+# devkitPro installed (Windows graphical installer + MSYS2, or the
+# devkitpro/devkita64 Docker image):
+(dkp-)pacman -S switch-dev switch-curl switch-mbedtls switch-zlib \
+               switch-glfw switch-glm switch-mesa switch-libdrm_nouveau
+
 cd NextendoHub-nx
-make                     # -> NextendoHub.nro
+./setup.sh          # once — git clone borealis, stage its resources into romfs/
+make               # -> NextendoHub.nro
 ```
 
-Copy `NextendoHub.nro` to `sdmc:/switch/NextendoHub/NextendoHub.nro` and launch
-it from the Homebrew Menu (album / title-redirect). Needs CFW (Atmosphère) or a
-hbmenu entrypoint; homebrew has no networking in applet mode without the sysmodule
-— run it as a **title takeover** (hold R on a game) for full socket access, or
-from a full hbmenu launch.
+Put `NextendoHub.nro` under `sdmc:/switch/NextendoHub/` and launch from the
+Homebrew Menu via a **full launch / title-takeover** (hold R on a game) so it has
+socket access (applet-mode hbmenu has no network).
+
+> Not compiled here (no devkitPro on Windows). The libnx/borealis API calls are
+> written to the classic-borealis API; expect a short shakeout pass on a devkit —
+> most likely spots: `brls::Application::setThemeVariant` (drop if absent),
+> `Swkbd`/`Dropdown`/`Dialog` exact signatures, and `-lpthread` ordering.
 
 ## Files
 
 ```
-Makefile              standard libnx application Makefile (romfs + curl linked)
-source/main.cpp       the client (init, httpJson, token store, swkbd, 3 screens)
-source/cJSON.c/.h     vendored JSON parser (MIT, DaveGamble/cJSON v1.7.18)
+setup.sh              pulls borealis + stages resources (run once)
+Makefile              libnx app Makefile; includes lib/borealis/library/borealis.mk
+source/main.cpp       borealis UI — LiveList + all four tabs, every screen
+source/net.hpp/.cpp   full window.nextendo.* bridge (libcurl + multi-account store + all endpoints)
+source/i18n.hpp       en / fr / es strings
+source/cJSON.c/.h     vendored JSON parser (MIT)
 romfs/cacert.pem      Mozilla CA bundle for curl TLS verification
 icon.jpg              256x256 app icon
+lib/borealis/         created by setup.sh
 ```
 
-## Security note (Switch has no Keychain)
+## Security (the Switch has no Keychain)
 
-On desktop the token is OS-encrypted (DPAPI / Keychain) and per-user. The Switch
-SD card has **no equivalent** — `session.dat` is plaintext on the card, readable
-by anything that can mount the SD (this homebrew, other homebrew, a PC). Mitigations:
-
-- Store only the short-lived `token` (not the password); it's revocable server-side.
-- Optionally XOR/AES it with a key derived from a device-unique value
-  (`setsysGetSerialNumber`) so a card pulled into another console is useless — add
-  in `tokenLoad/tokenSave`.
-- Offer a "sign out on exit" toggle.
+Desktop keeps the token OS-encrypted (DPAPI / Keychain), per-user. The SD card has
+no equivalent — `sdmc:/switch/nextendo-hub/config.json` stores the bearer token in
+plaintext, readable by any homebrew or a PC. Mitigations: store only the
+short-lived revocable token (done — never the password); optionally XOR/AES it with
+a key from `setsysGetSerialNumber()` in `net::cfgLoad/cfgSave`; a "sign out on
+exit" toggle.
 
 ## Attribution
 
 Made by **adxmm**. Founders of Nextendo Network: **JuanBrew**, **Kazu**.
-Unofficial client — not affiliated with Nintendo or Nextendo Network.
+Unofficial — not affiliated with Nintendo or Nextendo Network.

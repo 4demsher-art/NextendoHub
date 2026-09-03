@@ -1,321 +1,510 @@
-// NextendoHub — Nintendo Switch homebrew (.nro)
+// NextendoHub — Nintendo Switch homebrew (borealis GUI). Full port of the
+// desktop NextendoHub: live Status + Online, login/register, multi-account,
+// friends, profile edit, cloud saves, favourite mods, settings.
 //
-// A native libnx client for nextendo.network. This is the Switch equivalent of
-// the Electron NextendoHub: Electron/HTML can't run under homebrew, so the
-// window becomes a console UI and the `window.nextendo.*` bridge becomes the
-// libcurl helpers below.
-//
-// Scope of this file: init + networking + Keychain-equivalent token store on the
-// SD card + swkbd login + three read-only screens (Status / Online / Friends).
-// The remaining screens (profile edit, saves, avatar gallery, multi-account)
-// re-use `httpJson()` the same way — see PLAN.md.
+// Electron/HTML can't run under homebrew, so borealis draws the UI (Switch-native
+// look, themed, real fonts) and net.cpp is the window.nextendo.* bridge.
 
+#include <borealis.hpp>
 #include <string>
 #include <vector>
-#include <cstdio>
-#include <cstring>
-#include <sys/stat.h>
-#include <switch.h>
-#include <curl/curl.h>
+#include <thread>
+#include <atomic>
+#include <mutex>
+#include <chrono>
+#include <cctype>
+#include "net.hpp"
+#include "i18n.hpp"
 #include "cJSON.h"
 
-// ------------------------------------------------------------------- config
-static const char* API      = "https://nextendo.network";
-static const char* STATUS   = "https://status.nextendo.network";
-static const char* CAINFO   = "romfs:/cacert.pem";
-static const char* TOKEN_DIR  = "sdmc:/switch/nextendo-hub";
-static const char* TOKEN_PATH = "sdmc:/switch/nextendo-hub/session.dat";
+using i18n::T;
+using net::gs;
+using net::gi;
+using net::gb;
 
-// ------------------------------------------------------------------- http
-struct Buf { std::string s; };
-static size_t writeCb(char* p, size_t sz, size_t n, void* u) {
-    ((Buf*)u)->s.append(p, sz * n);
-    return sz * n;
+static const char* APP_NAME = "Nextendo Hub";
+
+// ================================================================ small helpers
+static brls::ListItem* row(const std::string& label, const std::string& value = "") {
+    auto* it = new brls::ListItem(label);
+    if (!value.empty()) it->setValue(value);
+    return it;
+}
+static void note(brls::List* l, const std::string& text) {
+    l->addView(new brls::Label(brls::LabelStyle::DESCRIPTION, text, true));
+}
+static std::string usernameError(const std::string& u) {           // "" == ok
+    if (u.size() < 3 || u.size() > 16) return "3-16 characters";
+    for (char c : u) if (!(std::isalnum((unsigned char)c) || c == '_' || c == '-')) return "letters, digits, _ or -";
+    return "";
+}
+static bool passwordOk(const std::string& p) {
+    bool digit = false, special = false;
+    for (char c : p) { if (std::isdigit((unsigned char)c)) digit = true; else if (!std::isalnum((unsigned char)c)) special = true; }
+    return p.size() >= 8 && digit && special;
 }
 
-struct Resp { long status = 0; std::string body; };
+// borealis Swkbd is one field at a time — chain callbacks for multi-field forms.
+static void askText(const std::string& header, std::function<void(std::string)> cb, const std::string& initial = "") {
+    brls::Swkbd::openForText([cb](std::string s) { cb(s); }, header, "", 128, initial);
+}
 
-// method: "GET" | "POST" | "PUT" | "DELETE".  body: JSON string or "".  bearer: "" for none.
-static Resp httpRaw(const char* method, const std::string& url,
-                    const std::string& body, const std::string& bearer) {
-    Resp r;
-    CURL* c = curl_easy_init();
-    if (!c) return r;
-    Buf buf;
-    struct curl_slist* hdr = nullptr;
-    hdr = curl_slist_append(hdr, "Accept: application/json");
-    hdr = curl_slist_append(hdr, "User-Agent: NextendoHub-Switch/1.0");
-    std::string auth;
-    if (!bearer.empty()) { auth = "Authorization: Bearer " + bearer; hdr = curl_slist_append(hdr, auth.c_str()); }
-    if (!body.empty())     hdr = curl_slist_append(hdr, "Content-Type: application/json");
+// ================================================================ LiveList
+// A borealis List that re-fetches on an interval on a worker thread and rebuilds
+// itself on the UI thread. Used for the two polling feeds (Status / Online).
+class LiveList : public brls::List {
+public:
+    using Fetch  = std::function<cJSON*(long*)>;
+    using Render = std::function<void(brls::List*, cJSON*, long)>;
 
-    curl_easy_setopt(c, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(c, CURLOPT_HTTPHEADER, hdr);
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, writeCb);
-    curl_easy_setopt(c, CURLOPT_WRITEDATA, &buf);
-    curl_easy_setopt(c, CURLOPT_CAINFO, CAINFO);
-    curl_easy_setopt(c, CURLOPT_SSL_VERIFYPEER, 1L);
-    curl_easy_setopt(c, CURLOPT_SSL_VERIFYHOST, 2L);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, 20L);
-    curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 0L);
-    if (strcmp(method, "GET") != 0) curl_easy_setopt(c, CURLOPT_CUSTOMREQUEST, method);
-    if (!body.empty()) {
-        curl_easy_setopt(c, CURLOPT_POSTFIELDS, body.c_str());
-        curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE, (long)body.size());
+    LiveList(Fetch f, Render r, int intervalMs)
+        : fetch(std::move(f)), render(std::move(r)), interval(intervalMs) {
+        kick();
+        this->registerAction(T("refresh_hint"), brls::Key::X, [this]() { kick(); return true; });
     }
-    CURLcode rc = curl_easy_perform(c);
-    if (rc == CURLE_OK) {
-        curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &r.status);
-        r.body = std::move(buf.s);
-    }
-    curl_slist_free_all(hdr);
-    curl_easy_cleanup(c);
-    return r;
-}
+    ~LiveList() override { alive = false; if (worker.joinable()) worker.join(); }
 
-// Parsed variant. Caller owns the cJSON* (cJSON_Delete). NULL on parse failure.
-static cJSON* httpJson(const char* method, const std::string& path,
-                       const std::string& body = "", const std::string& bearer = "",
-                       long* outStatus = nullptr, const char* base = nullptr) {
-    Resp r = httpRaw(method, std::string(base ? base : API) + path, body, bearer);
-    if (outStatus) *outStatus = r.status;
-    return r.body.empty() ? nullptr : cJSON_Parse(r.body.c_str());
-}
-
-// ------------------------------------------------------------------- token store
-// The Switch has no Keychain; the token lives on the SD card, readable only with
-// the console unlocked + this homebrew running. (No DPAPI equivalent.)
-static std::string g_token;
-
-static void tokenLoad() {
-    FILE* f = fopen(TOKEN_PATH, "rb");
-    if (!f) return;
-    char b[4096]; size_t n = fread(b, 1, sizeof(b) - 1, f); fclose(f);
-    b[n] = 0;
-    g_token.assign(b);
-}
-static void tokenSave(const std::string& t) {
-    g_token = t;
-    mkdir(TOKEN_DIR, 0777);
-    FILE* f = fopen(TOKEN_PATH, "wb");
-    if (f) { fwrite(t.data(), 1, t.size(), f); fclose(f); }
-}
-static void tokenClear() {
-    g_token.clear();
-    remove(TOKEN_PATH);
-}
-
-// ------------------------------------------------------------------- swkbd
-static bool kbd(const char* header, bool password, std::string& out) {
-    SwkbdConfig cfg;
-    if (R_FAILED(swkbdCreate(&cfg, 0))) return false;
-    swkbdConfigMakePresetDefault(&cfg);
-    swkbdConfigSetHeaderText(&cfg, header);
-    swkbdConfigSetType(&cfg, SwkbdType_All);
-    swkbdConfigSetStringLenMax(&cfg, 128);
-    if (password) swkbdConfigSetPasswordFlag(&cfg, 1);
-    char buf[256] = {0};
-    Result rc = swkbdShow(&cfg, buf, sizeof(buf));
-    swkbdClose(&cfg);
-    if (R_FAILED(rc)) return false;
-    out.assign(buf);
-    return !out.empty();
-}
-
-// ------------------------------------------------------------------- helpers
-static std::string js(const std::string& v) {                 // JSON-encode a string
-    std::string o = "\"";
-    for (char c : v) {
-        switch (c) {
-            case '"': o += "\\\""; break;
-            case '\\': o += "\\\\"; break;
-            case '\n': o += "\\n"; break;
-            case '\r': o += "\\r"; break;
-            case '\t': o += "\\t"; break;
-            default: o += c;
+    void frame(brls::FrameContext* ctx) override {
+        if (ready.exchange(false)) {
+            this->clear();
+            cJSON* d;
+            long st;
+            { std::lock_guard<std::mutex> lk(mtx); d = data; data = nullptr; st = status; }
+            render(this, d, st);
+            if (d) cJSON_Delete(d);
         }
+        brls::List::frame(ctx);
+        auto now = std::chrono::steady_clock::now();
+        if (!busy && std::chrono::duration_cast<std::chrono::milliseconds>(now - last).count() >= interval)
+            kick();
     }
-    o += "\"";
-    return o;
-}
-static const char* cs(cJSON* o, const char* k, const char* dflt = "") {
-    cJSON* v = cJSON_GetObjectItemCaseSensitive(o, k);
-    return (v && cJSON_IsString(v) && v->valuestring) ? v->valuestring : dflt;
-}
-static int ci(cJSON* o, const char* k, int dflt = 0) {
-    cJSON* v = cJSON_GetObjectItemCaseSensitive(o, k);
-    return (v && cJSON_IsNumber(v)) ? (int)v->valuedouble : dflt;
-}
 
-// ------------------------------------------------------------------- auth
-static bool doLogin() {
-    std::string email, pw;
-    if (!kbd("Nextendo e-mail", false, email)) return false;
-    if (!kbd("Nextendo password", true, pw)) return false;
-    std::string body = "{\"login\":" + js(email) + ",\"password\":" + js(pw) + "}";
-    long st = 0;
-    cJSON* j = httpJson("POST", "/api/login", body, "", &st);
-    bool ok = false;
-    if (j && st == 200) {
-        const char* tok = cs(j, "token");
-        if (tok && *tok) { tokenSave(tok); ok = true; }
+private:
+    void kick() {
+        if (busy.exchange(true)) return;
+        last = std::chrono::steady_clock::now();
+        if (worker.joinable()) worker.join();
+        worker = std::thread([this]() {
+            long st = 0;
+            cJSON* d = fetch(&st);
+            { std::lock_guard<std::mutex> lk(mtx); if (data) cJSON_Delete(data); data = d; status = st; }
+            ready = true;
+            busy = false;
+        });
     }
-    if (j) cJSON_Delete(j);
-    return ok;
-}
+    Fetch fetch; Render render; int interval;
+    std::thread worker;
+    std::mutex mtx;
+    cJSON* data = nullptr;
+    long status = 0;
+    std::atomic<bool> busy{false}, ready{false}, alive{true};
+    std::chrono::steady_clock::time_point last = std::chrono::steady_clock::time_point::min();
+};
 
-// ------------------------------------------------------------------- screens
-enum Screen { SC_STATUS, SC_ONLINE, SC_FRIENDS, SC_COUNT };
-static const char* SCREEN_NAME[] = { "Server status", "In game now", "Friends" };
-
-static void drawStatus() {
-    printf("\n  Fetching status.nextendo.network ...\n");
-    consoleUpdate(NULL);
-    long a = 0, b = 0;
-    cJSON* cfg = httpJson("GET", "/api/status-page/next", "", "", &a, STATUS);
-    cJSON* hb  = httpJson("GET", "/api/status-page/heartbeat/next", "", "", &b, STATUS);
-    printf("\x1b[2J\x1b[H");
-    printf("  NextendoHub   [ %s ]   L/R switch   + exit\n", SCREEN_NAME[SC_STATUS]);
-    printf("  ------------------------------------------------------------\n");
-    if (!cfg || a != 200) { printf("\n  unreachable (HTTP %ld)\n", a); if (cfg) cJSON_Delete(cfg); if (hb) cJSON_Delete(hb); return; }
-    cJSON* beats = hb ? cJSON_GetObjectItem(hb, "heartbeatList") : nullptr;
-    int up = 0, down = 0, total = 0;
-    cJSON* groups = cJSON_GetObjectItem(cfg, "publicGroupList");
-    cJSON* g;
-    cJSON_ArrayForEach(g, groups) {
-        cJSON* mons = cJSON_GetObjectItem(g, "monitorList");
-        cJSON* m;
-        cJSON_ArrayForEach(m, mons) {
-            int id = ci(m, "id");
-            char key[16]; snprintf(key, sizeof(key), "%d", id);
-            cJSON* list = beats ? cJSON_GetObjectItem(beats, key) : nullptr;
-            cJSON* last = list ? cJSON_GetArrayItem(list, cJSON_GetArraySize(list) - 1) : nullptr;
-            int s = last ? ci(last, "status", -1) : -1;
-            total++;
-            if (s == 1 || s == 3) up++; else if (s == 0 || s == 2) down++;
-        }
-    }
-    printf("\n  %s   (%d / %d up)\n\n", down ? "SERVICE(S) DOWN" : "All systems operational", up, total);
-    cJSON_ArrayForEach(g, groups) {
-        printf("  %s\n", cs(g, "name", "Nextendo"));
-        cJSON* mons = cJSON_GetObjectItem(g, "monitorList");
-        cJSON* m;
-        cJSON_ArrayForEach(m, mons) {
-            int id = ci(m, "id");
-            char key[16]; snprintf(key, sizeof(key), "%d", id);
-            cJSON* list = beats ? cJSON_GetObjectItem(beats, key) : nullptr;
-            cJSON* last = list ? cJSON_GetArrayItem(list, cJSON_GetArraySize(list) - 1) : nullptr;
-            int s = last ? ci(last, "status", -1) : -1;
-            int ping = last ? ci(last, "ping") : 0;
-            printf("    [%s] %-34s %4d ms\n",
-                   s == 1 ? "UP " : s == 0 ? "DWN" : s == 3 ? "MNT" : " ? ",
-                   cs(m, "name"), ping);
-        }
-    }
-    cJSON_Delete(cfg); if (hb) cJSON_Delete(hb);
-}
-
-static void drawOnline() {
-    printf("\n  Fetching nextendo.network/api/online-counts ...\n");
-    consoleUpdate(NULL);
-    long st = 0;
-    cJSON* j = httpJson("GET", "/api/online-counts", "", "", &st);
-    printf("\x1b[2J\x1b[H");
-    printf("  NextendoHub   [ %s ]   L/R switch   + exit\n", SCREEN_NAME[SC_ONLINE]);
-    printf("  ------------------------------------------------------------\n\n");
-    if (!j || st != 200) { printf("  unreachable (HTTP %ld)\n", st); if (j) cJSON_Delete(j); return; }
-    cJSON* jeux = cJSON_GetObjectItem(j, "jeux");
-    int total = 0;
+// ================================================================ renderers
+static void renderOnline(brls::List* l, cJSON* d, long st) {
+    if (!d) { note(l, st ? (std::string(T("unreachable")) + " (HTTP " + std::to_string(st) + ")") : T("unreachable")); return; }
+    int total = gi(d, "total");
+    cJSON* jeux = cJSON_GetObjectItem(d, "jeux");
+    int active = 0;
     cJSON* it;
-    cJSON_ArrayForEach(it, jeux) total += ci(it, "joueurs");
-    printf("  %d players in game right now\n\n", total);
+    cJSON_ArrayForEach(it, jeux) if (gi(it, "joueurs") > 0) active++;
+    l->addView(new brls::Header(std::to_string(total) + " " + T("players_ingame") + "  ·  " +
+                                std::to_string(active) + " " + T("games_active")));
     cJSON_ArrayForEach(it, jeux) {
-        int n = ci(it, "joueurs");
+        int n = gi(it, "joueurs");
         if (n <= 0) continue;
-        printf("    %-38s %3d\n", cs(it, "nom"), n);
+        l->addView(row(gs(it, "nom"), std::to_string(n) + " " + (n == 1 ? T("player") : T("players"))));
     }
-    cJSON_Delete(j);
+    if (!active) note(l, T("no_data"));
 }
 
-static void drawFriends() {
-    printf("\x1b[2J\x1b[H");
-    printf("  NextendoHub   [ %s ]   L/R switch   + exit\n", SCREEN_NAME[SC_FRIENDS]);
-    printf("  ------------------------------------------------------------\n\n");
-    if (g_token.empty()) { printf("  Not signed in.  Press Y to sign in.\n"); return; }
-    consoleUpdate(NULL);
-    long st = 0;
-    cJSON* j = httpJson("GET", "/api/friends", "", g_token, &st);
-    if (st == 401) { tokenClear(); printf("  Session expired.  Press Y to sign in.\n"); if (j) cJSON_Delete(j); return; }
-    if (!j || st != 200) { printf("  could not load friends (HTTP %ld)\n", st); if (j) cJSON_Delete(j); return; }
-    cJSON* arr = cJSON_IsArray(j) ? j : cJSON_GetObjectItem(j, "friends");
-    cJSON* f;
-    int online = 0, count = 0;
-    cJSON_ArrayForEach(f, arr) {
-        count++;
-        cJSON* pr = cJSON_GetObjectItem(f, "presence");
-        int s = pr ? ci(pr, "status") : 0;
-        const char* app = pr ? cs(pr, "app_id") : "";
-        bool on = s > 0;
-        if (on) online++;
-        const char* name = cs(f, "name", cs(f, "username", "-"));
-        printf("    %s %-24s %s\n",
-               on && *app ? "[GAME]" : on ? "[ ON ]" : "[ off]",
-               name, cs(f, "friend_code"));
+static void renderStatus(brls::List* l, cJSON* d, long st) {
+    if (!d) { note(l, T("unreachable")); return; }
+    int up = gi(d, "up"), down = gi(d, "down"), total = gi(d, "total");
+    l->addView(new brls::Header(down ? (std::to_string(down) + " " + T("services_down")) : T("all_ok")));
+    note(l, std::to_string(up) + " / " + std::to_string(total) + " " + T("up_of"));
+    cJSON* g;
+    cJSON_ArrayForEach(g, cJSON_GetObjectItem(d, "groups")) {
+        l->addView(new brls::Header(gs(g, "name", "Nextendo")));
+        cJSON* m;
+        cJSON_ArrayForEach(m, cJSON_GetObjectItem(g, "monitors")) {
+            int s = gi(m, "status", -1);
+            const char* tag = s == 1 ? T("st_up") : s == 0 ? T("st_down") : s == 3 ? T("st_maint") : "?";
+            std::string v = tag;
+            if (cJSON_GetObjectItem(m, "ping")) v += "  ·  " + std::to_string(gi(m, "ping")) + " ms";
+            l->addView(row(gs(m, "name"), v));
+        }
     }
-    printf("\n  %d friends  ·  %d online\n", count, online);
-    cJSON_Delete(j);
+    cJSON* inc;
+    cJSON_ArrayForEach(inc, cJSON_GetObjectItem(d, "incidents"))
+        note(l, std::string("⚠ ") + gs(inc, "title") + "\n" + gs(inc, "content"));
 }
 
-// ------------------------------------------------------------------- main
-int main(int argc, char** argv) {
-    consoleInit(NULL);
-    romfsInit();
-    socketInitializeDefault();
-    curl_global_init(CURL_GLOBAL_ALL);
+// ================================================================ FRIENDS tab
+static void buildFriends(brls::List* l);   // fwd
 
-    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
-    PadState pad;
-    padInitializeDefault(&pad);
-
-    tokenLoad();
-
-    int screen = SC_ONLINE;
-    bool dirty = true;
-
-    while (appletMainLoop()) {
-        padUpdate(&pad);
-        u64 down = padGetButtonsDown(&pad);
-
-        if (down & HidNpadButton_Plus) break;
-        if (down & HidNpadButton_R) { screen = (screen + 1) % SC_COUNT; dirty = true; }
-        if (down & HidNpadButton_L) { screen = (screen + SC_COUNT - 1) % SC_COUNT; dirty = true; }
-        if (down & HidNpadButton_X) dirty = true;                       // refresh
-        if ((down & HidNpadButton_Y) && screen == SC_FRIENDS && g_token.empty()) {
-            if (doLogin()) dirty = true;
-        }
-        if (down & HidNpadButton_Minus && !g_token.empty()) {           // sign out
-            tokenClear(); dirty = true;
-        }
-
-        if (dirty) {
-            printf("\x1b[2J\x1b[H");
-            switch (screen) {
-                case SC_STATUS:  drawStatus();  break;
-                case SC_ONLINE:  drawOnline();  break;
-                case SC_FRIENDS: drawFriends(); break;
+static void doLoginFlow(brls::List* l, bool registerMode) {
+    askText(T("email"), [l, registerMode](std::string email) {
+        if (email.empty()) return;
+        askText(T("password"), [l, registerMode, email](std::string pw) {
+            if (pw.empty()) return;
+            if (registerMode) {
+                if (!passwordOk(pw)) { brls::Application::notify(T("failed")); return; }
+                askText(T("password_again"), [l, email, pw](std::string pw2) {
+                    if (pw2 != pw) { brls::Application::notify("passwords differ"); return; }
+                    askText(T("username"), [l, email, pw](std::string u) {
+                        if (!usernameError(u).empty()) { brls::Application::notify(usernameError(u)); return; }
+                        net::AuthResult r = net::reg(u, email, pw, "");
+                        brls::Application::notify(r.ok ? T("saved") : r.error);
+                        if (r.ok) buildFriends(l);
+                    });
+                });
+            } else {
+                net::AuthResult r = net::login(email, pw);
+                brls::Application::notify(r.ok ? (std::string("✓ ") + r.username) : r.error);
+                if (r.ok) buildFriends(l);
             }
-            printf("\n  ------------------------------------------------------------\n");
-            printf("  L/R screen   X refresh   %s   + exit\n",
-                   screen == SC_FRIENDS ? (g_token.empty() ? "Y sign in" : "- sign out") : "");
-            dirty = false;
-        }
+        });
+    });
+}
 
-        consoleUpdate(NULL);
+static void buildFriends(brls::List* l) {
+    l->clear();
+
+    if (!net::signedIn()) {
+        note(l, T("not_signed_in"));
+        auto* si = row(T("sign_in"));
+        si->getClickEvent()->subscribe([l](brls::View*) { doLoginFlow(l, false); });
+        l->addView(si);
+        auto* cr = row(T("create_account"));
+        cr->getClickEvent()->subscribe([l](brls::View*) { doLoginFlow(l, true); });
+        l->addView(cr);
+        return;
     }
 
-    curl_global_cleanup();
-    socketExit();
-    romfsExit();
-    consoleExit(NULL);
-    return 0;
+    // account switcher
+    auto accs = net::accounts();
+    l->addView(new brls::Header(T("account")));
+    if (accs.size() > 1) {
+        auto* sw = row(T("switch_account"));
+        sw->getClickEvent()->subscribe([l, accs](brls::View*) {
+            std::vector<std::string> names;
+            int sel = 0;
+            for (size_t i = 0; i < accs.size(); i++) { names.push_back(accs[i].username); if (accs[i].current) sel = (int)i; }
+            brls::Dropdown::open(T("switch_account"), names, [l, accs](int idx) {
+                if (idx >= 0 && idx < (int)accs.size() && net::setCurrent(accs[idx].id)) buildFriends(l);
+            }, sel);
+        });
+        l->addView(sw);
+    }
+    auto* add = row(T("add_account"));
+    add->getClickEvent()->subscribe([l](brls::View*) { doLoginFlow(l, false); });
+    l->addView(add);
+    auto* out = row(T("sign_out"));
+    out->getClickEvent()->subscribe([l](brls::View*) { net::logout(); buildFriends(l); });
+    l->addView(out);
+
+    // add friend by code
+    auto* af = row(T("add_friend"));
+    af->getClickEvent()->subscribe([l](brls::View*) {
+        askText(T("friend_code"), [l](std::string code) {
+            if (code.empty()) return;
+            std::string e;
+            bool ok = net::friendAdd(code, e);
+            brls::Application::notify(ok ? T("saved") : e);
+            if (ok) buildFriends(l);
+        });
+    });
+    l->addView(af);
+
+    long st = 0;
+    cJSON* d = net::friends(&st);
+    if (st == 401 || !net::signedIn()) { note(l, T("session_expired")); if (d) cJSON_Delete(d); return; }
+    if (!d) { note(l, std::string(T("unreachable")) + " (HTTP " + std::to_string(st) + ")"); return; }
+
+    cJSON* cnt = cJSON_GetObjectItem(d, "counts");
+    l->addView(new brls::Header(std::string(T("friends_hdr")) + "  ·  " +
+        std::to_string(gi(cnt, "online")) + " " + T("online_word") + "  ·  " +
+        std::to_string(gi(cnt, "inGame")) + " " + T("in_game")));
+
+    cJSON* reqs = cJSON_GetObjectItem(d, "requests");
+    if (cJSON_GetArraySize(reqs) > 0) {
+        l->addView(new brls::Header(T("friend_requests")));
+        cJSON* r;
+        cJSON_ArrayForEach(r, reqs) {
+            int pid = gi(r, "pid");
+            auto* it = row(gs(r, "name"), std::string(T("wants_to_add")));
+            it->getClickEvent()->subscribe([l, pid](brls::View*) {
+                auto* dlg = new brls::Dialog(T("friend_requests"));
+                dlg->addButton(T("accept"),  [l, pid](brls::View*) { net::friendAccept(pid);  buildFriends(l); });
+                dlg->addButton(T("decline"), [l, pid](brls::View*) { net::friendDecline(pid); buildFriends(l); });
+                dlg->open();
+            });
+            l->addView(it);
+        }
+    }
+
+    l->addView(new brls::Header(T("friends_hdr")));
+    cJSON* f;
+    cJSON_ArrayForEach(f, cJSON_GetObjectItem(d, "friends")) {
+        std::string state = gb(f, "inGame")
+            ? (std::string(T("playing")) + " " + (gs(f, "game")[0] ? gs(f, "game") : "..."))
+            : gb(f, "online") ? T("online_word") : T("offline_word");
+        std::string name = gs(f, "name");
+        if (gb(f, "favorite")) name += "  ★";
+        l->addView(row(name, state));
+    }
+    if (gi(cnt, "total") == 0) note(l, T("no_friends"));
+    cJSON_Delete(d);
+}
+
+// ================================================================ SETTINGS tab
+static const char* SWATCHES[] = { "#1ca9e0","#e4404a","#36ce73","#8b5cf6","#f59e0b","#ec4899",
+                                  "#14b8a6","#eab308","#6366f1","#ef7c3a","#22d3ee","#64748b" };
+
+static void applyTheme(const std::string& t) {
+    // borealis auto-follows the console theme; "light"/"dark" force it.
+    if (t == "light") brls::Application::setThemeVariant(brls::ThemeVariant::LIGHT);
+    else if (t == "dark") brls::Application::setThemeVariant(brls::ThemeVariant::DARK);
+    // "system" -> leave borealis' auto-detection alone
+}
+
+static void buildAvatarGallery(brls::List* parent) {
+    long st = 0;
+    cJSON* m = net::avatarsList(&st);
+    if (!m) { brls::Application::notify(T("failed")); return; }
+    auto* list = new brls::List();
+    auto addSet = [&](const char* key, const char* header) {
+        list->addView(new brls::Header(header));
+        cJSON* a = cJSON_GetObjectItem(m, key);
+        cJSON* it;
+        cJSON_ArrayForEach(it, a) {
+            if (!cJSON_IsString(it)) continue;
+            std::string name = it->valuestring;
+            auto* r = row(name);
+            r->getClickEvent()->subscribe([name, parent](brls::View*) {
+                std::string bytes;
+                if (!net::avatarImageBytes(name, bytes)) { brls::Application::notify(T("failed")); return; }
+                std::string img = "data:image/png;base64," +
+                    net::b64((const unsigned char*)bytes.data(), bytes.size());
+                std::string avatarJson = "{\"char\":\"" + name + "\"}";
+                std::string e;
+                bool ok = net::profileSave("", img, "", avatarJson, e);
+                brls::Application::notify(ok ? T("saved") : e);
+                if (ok) brls::Application::popView();
+            });
+            list->addView(r);
+        }
+    };
+    addSet("firmware", "Switch");
+    addSet("custom", "Custom");
+    cJSON_Delete(m);
+    brls::Application::pushView(list);
+}
+
+static void buildSettings(brls::List* l) {
+    l->clear();
+
+    // ---- appearance ----
+    l->addView(new brls::Header(T("tab_settings")));
+    std::string theme = net::getPref("theme", "system");
+    auto* th = row(T("theme"), theme == "light" ? T("th_light") : theme == "dark" ? T("th_dark") : T("th_system"));
+    th->getClickEvent()->subscribe([l](brls::View*) {
+        brls::Dropdown::open(T("theme"), { T("th_system"), T("th_light"), T("th_dark") }, [l](int i) {
+            const char* v = i == 1 ? "light" : i == 2 ? "dark" : "system";
+            net::setPref("theme", v); applyTheme(v); buildSettings(l);
+        }, net::getPref("theme", "system") == "light" ? 1 : net::getPref("theme", "system") == "dark" ? 2 : 0);
+    });
+    l->addView(th);
+
+    auto* lang = row(T("language"), i18n::lang() == "fr" ? "Français" : i18n::lang() == "es" ? "Español" : "English");
+    lang->getClickEvent()->subscribe([l](brls::View*) {
+        brls::Dropdown::open(T("language"), { "English", "Français", "Español" }, [l](int i) {
+            i18n::setLang(i == 1 ? "fr" : i == 2 ? "es" : "en");
+            buildSettings(l);
+            brls::Application::notify("Reopen tabs to fully re-translate");
+        }, i18n::lang() == "fr" ? 1 : i18n::lang() == "es" ? 2 : 0);
+    });
+    l->addView(lang);
+
+    auto* su = row(T("startup"), T("startup_na"));
+    su->setValue(T("startup_na"), true);
+    l->addView(su);
+
+    // ---- account section (only when signed in) ----
+    if (net::signedIn()) {
+        long st = 0;
+        cJSON* p = net::profileGet(&st);
+        l->addView(new brls::Header(T("profile")));
+
+        // username
+        std::string curU = p ? gs(p, "username", "") : "";
+        auto* un = row(T("username"), curU);
+        un->getClickEvent()->subscribe([l, curU](brls::View*) {
+            askText(T("username"), [l](std::string u) {
+                std::string err = usernameError(u);
+                if (!err.empty()) { brls::Application::notify(err); return; }
+                if (!net::usernameAvailable(u)) { brls::Application::notify(T("taken")); return; }
+                std::string e;
+                bool ok = net::usernameSet(u, e);
+                brls::Application::notify(ok ? T("saved") : e);
+                if (ok) buildSettings(l);
+            }, curU);
+        });
+        l->addView(un);
+
+        // country
+        std::string curC = p ? gs(p, "country", "") : "";
+        auto* cn = row(T("country"), curC.empty() ? "--" : curC);
+        cn->getClickEvent()->subscribe([l](brls::View*) {
+            auto codes = net::countryList();
+            if (codes.empty()) { brls::Application::notify(T("failed")); return; }
+            int sel = 0;
+            std::string cur = net::getPref("_country_cache", "");
+            for (size_t i = 0; i < codes.size(); i++) if (codes[i] == cur) sel = (int)i;
+            brls::Dropdown::open(T("country"), codes, [l, codes](int i) {
+                if (i < 0 || i >= (int)codes.size()) return;
+                std::string e;
+                bool ok = net::countrySet(codes[i], e);
+                net::setPref("_country_cache", codes[i]);
+                brls::Application::notify(ok ? T("saved") : e);
+                if (ok) buildSettings(l);
+            }, sel);
+        });
+        l->addView(cn);
+
+        // profile picture — gallery
+        auto* pic = row(T("choose_avatar"));
+        pic->getClickEvent()->subscribe([l](brls::View*) { buildAvatarGallery(l); });
+        l->addView(pic);
+
+        // colour
+        auto* col = row(T("color"), p ? gs(p, "color", "") : "");
+        col->getClickEvent()->subscribe([l](brls::View*) {
+            std::vector<std::string> opts(SWATCHES, SWATCHES + 12);
+            brls::Dropdown::open(T("color"), opts, [l, opts](int i) {
+                if (i < 0 || i >= 12) return;
+                std::string e;
+                bool ok = net::profileSave("", "", opts[i], std::string("\0", 1), e);
+                brls::Application::notify(ok ? T("saved") : e);
+                if (ok) buildSettings(l);
+            }, 0);
+        });
+        l->addView(col);
+
+        // ---- cloud saves ----
+        l->addView(new brls::Header(T("cloud_saves")));
+        long ss = 0;
+        cJSON* sv = net::savesList(&ss);
+        if (!sv) {
+            note(l, T("unreachable"));
+        } else if (!gb(sv, "eligible")) {
+            note(l, std::string(gs(sv, "reasonCode")) == "email" ? T("gate_email") : T("gate_discord"));
+        } else {
+            int used = gi(sv, "totalSize"), lim = gi(sv, "limit", 1);
+            char q[64]; snprintf(q, sizeof(q), "%.1f / %.1f MB", used / 1048576.0, lim / 1048576.0);
+            note(l, q);
+            cJSON* s;
+            int scount = 0;
+            cJSON_ArrayForEach(s, cJSON_GetObjectItem(sv, "saves")) {
+                scount++;
+                std::string tid = gs(s, "titleId"), nm = gs(s, "name");
+                int sz = gi(s, "size", -1);
+                std::string sub = sz >= 0 ? (std::to_string(sz / 1024) + " KB") : "";
+                auto* it = row(nm, sub);
+                it->getClickEvent()->subscribe([l, tid, nm](brls::View*) {
+                    auto* dlg = new brls::Dialog(nm);
+                    dlg->addButton(T("download"), [l, tid, nm](brls::View*) {
+                        std::string path, e;
+                        bool ok = net::saveDownload(tid, nm, path, e);
+                        brls::Application::notify(ok ? (std::string(T("downloaded")) + " " + path) : e);
+                    });
+                    dlg->addButton(T("del"), [l, tid](brls::View*) {
+                        std::string e; net::saveDelete(tid, e); buildSettings(l);
+                    });
+                    dlg->open();
+                });
+                l->addView(it);
+            }
+            if (!scount) note(l, T("no_saves"));
+        }
+        if (sv) cJSON_Delete(sv);
+
+        // ---- favourite mods ----
+        l->addView(new brls::Header(T("fav_mods")));
+        long ms = 0;
+        cJSON* mods = net::modsFavorites(&ms);
+        if (!mods || cJSON_GetArraySize(mods) == 0) {
+            note(l, T("no_mods"));
+        } else {
+            cJSON* m;
+            cJSON_ArrayForEach(m, mods) {
+                std::string sub = gs(m, "game");
+                if (gs(m, "author")[0]) sub += std::string(sub.empty() ? "" : "  ·  ") + gs(m, "author");
+                l->addView(row(gs(m, "name"), sub));
+            }
+        }
+        if (mods) cJSON_Delete(mods);
+
+        if (p) cJSON_Delete(p);
+    } else {
+        note(l, T("not_signed_in") + std::string("  (") + T("tab_friends") + ")");
+    }
+
+    // ---- credit ----
+    l->addView(new brls::Header(T("about")));
+    note(l, "NextendoHub - unofficial client for nextendo.network.");
+    l->addView(row(T("made_by"), "adxmm"));
+    l->addView(row(T("friend_code"), net::getPref("credit_fc", "SW-????-????-????")));
+    l->addView(row("Discord", "diavolo.__"));
+    l->addView(row(T("founders"), "JuanBrew  ·  Kazu"));
+    l->addView(row(T("version"), "1.0.0"));
+
+    // capture the maker's own friend code the first time adxmm signs in
+    if (net::signedIn()) {
+        long st = 0;
+        cJSON* me = net::profileGet(&st);
+        if (me) {
+            std::string u = gs(me, "username", "");
+            std::string fc = gs(me, "friend_code", "");
+            for (auto& c : u) c = (char)tolower((unsigned char)c);
+            if (u == "adxmm" && !fc.empty()) net::setPref("credit_fc", fc);
+            cJSON_Delete(me);
+        }
+    }
+}
+
+// ================================================================ main
+int main(int argc, char* argv[]) {
+    brls::Logger::setLogLevel(brls::LogLevel::INFO);
+    if (!brls::Application::init(APP_NAME)) return EXIT_FAILURE;
+    net::init();
+    i18n::loadLang();
+    applyTheme(net::getPref("theme", "system"));
+
+    auto* root = new brls::TabFrame();
+    root->setTitle(APP_NAME);
+    root->setIcon("romfs:/icon.jpg");
+
+    root->addTab(T("tab_online"),  new LiveList(net::onlineCounts, renderOnline, 15000));
+    root->addTab(T("tab_status"),  new LiveList(net::serverStatus, renderStatus, 60000));
+
+    auto* friends = new brls::List();
+    buildFriends(friends);
+    friends->registerAction(T("refresh_hint"), brls::Key::X, [friends]() { buildFriends(friends); return true; });
+    root->addTab(T("tab_friends"), friends);
+
+    root->addSeparator();
+
+    auto* settings = new brls::List();
+    buildSettings(settings);
+    settings->registerAction(T("refresh_hint"), brls::Key::X, [settings]() { buildSettings(settings); return true; });
+    root->addTab(T("tab_settings"), settings);
+
+    brls::Application::pushView(root);
+    while (brls::Application::mainLoop());
+
+    net::shutdown();
+    return EXIT_SUCCESS;
 }
