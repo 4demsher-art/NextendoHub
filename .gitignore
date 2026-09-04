@@ -1,0 +1,6 @@
+build/
+lib/borealis/
+NextendoHub.nro
+NextendoHub.elf
+NextendoHub.nacp
+*.map

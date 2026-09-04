@@ -1,0 +1,86 @@
+name: Build NRO
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - "**.md"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Official devkitPro image: has devkitA64 + libnx preinstalled, DEVKITPRO
+    # env var already set, dkp-pacman wired up for the switch-* portlibs.
+    container:
+      image: devkitpro/devkita64:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # actions/checkout runs as a different uid than the container's root
+      # inside GitHub's runner; without this, git refuses to touch the repo
+      # ("detected dubious ownership") when setup.sh shells out to git.
+      - name: Trust the checkout dir
+        run: git config --global --add safe.directory '*'
+
+      - name: Install Switch portlibs
+        run: |
+          dkp-pacman -Sy --noconfirm --needed \
+            switch-dev switch-curl switch-mbedtls switch-zlib \
+            switch-glfw switch-glm switch-mesa switch-libdrm_nouveau
+
+      # Cache the cloned borealis checkout (pinned commit, see setup.sh) so
+      # reruns don't re-clone+build it from scratch every time.
+      - name: Cache borealis checkout
+        uses: actions/cache@v4
+        with:
+          path: lib/borealis
+          key: borealis-${{ hashFiles('setup.sh') }}
+
+      - name: Fetch borealis + stage resources
+        run: |
+          chmod +x setup.sh
+          ./setup.sh
+
+      - name: Build NextendoHub.nro
+        run: make -j$(nproc)
+
+      - name: Verify build output
+        run: |
+          test -f NextendoHub.nro
+          ls -la NextendoHub.nro NextendoHub.elf NextendoHub.nacp
+
+      - name: Upload NRO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NextendoHub-nro
+          path: |
+            NextendoHub.nro
+            NextendoHub.elf
+            NextendoHub.nacp
+          if-no-files-found: error
+          retention-days: 30
+
+  # On a tag push (e.g. `v1.0.0`), also attach the .nro to a GitHub Release.
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download built NRO
+        uses: actions/download-artifact@v4
+        with:
+          name: NextendoHub-nro
+          path: dist
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/NextendoHub.nro
