@@ -25,6 +25,38 @@ using net::gb;
 
 static const char* APP_NAME = "Nextendo Hub";
 
+// ================================================================ theme
+// borealis's default look is Nintendo's own system blue (HorizonLightTheme /
+// HorizonDarkTheme, see theme.cpp) — not this app's branding. Subclass both
+// and override just the accent-bearing fields to the Nextendo brand blue
+// (#1ca9e0, the same colour as SWATCHES[0] below and the desktop app's
+// primary accent), keeping every other native Switch UI colour (background,
+// text, separators, sidebar...) exactly as borealis draws it.
+static NVGcolor ACCENT() { return nvgRGB(0x1c, 0xa9, 0xe0); }
+
+class NextendoLightTheme : public brls::HorizonLightTheme {
+public:
+    NextendoLightTheme() : brls::HorizonLightTheme() {
+        activeTabColor                      = ACCENT();
+        highlightColor1                     = ACCENT();
+        listItemValueColor                  = ACCENT();
+        headerRectangleColor                = ACCENT();
+        buttonPrimaryEnabledBackgroundColor = ACCENT();
+        dialogButtonColor                   = ACCENT();
+    }
+};
+class NextendoDarkTheme : public brls::HorizonDarkTheme {
+public:
+    NextendoDarkTheme() : brls::HorizonDarkTheme() {
+        activeTabColor                      = ACCENT();
+        highlightColor1                     = ACCENT();
+        listItemValueColor                  = ACCENT();
+        headerRectangleColor                = ACCENT();
+        buttonPrimaryEnabledBackgroundColor = ACCENT();
+        dialogButtonColor                   = ACCENT();
+    }
+};
+
 // ================================================================ small helpers
 static brls::ListItem* row(const std::string& label, const std::string& value = "") {
     auto* it = new brls::ListItem(label);
@@ -86,6 +118,19 @@ public:
             { std::lock_guard<std::mutex> lk(mtx); d = data; data = nullptr; st = status; }
             render(this, d, st);
             if (d) cJSON_Delete(d);
+            // borealis's View::~View() clears Application's global focus if the
+            // view being destroyed was the focused one (see application.cpp).
+            // clear() just destroyed whatever was focused (the placeholder on
+            // first load, or a real row on a later refresh) — if nothing else
+            // claimed focus since, every controller input silently no-ops from
+            // here on: Application::navigate() returns immediately when
+            // getCurrentFocus() is null. Restore it, mirroring the same
+            // giveFocus(view->getDefaultFocus()) double-indirection borealis's
+            // own pushView() uses (this List's own getDefaultFocus() alone
+            // returns its raw content layout on this branch, not a real item —
+            // giveFocus() resolves that one level further internally).
+            if (!brls::Application::getCurrentFocus())
+                brls::Application::giveFocus(this->getDefaultFocus());
         }
         brls::List::frame(ctx);
         auto now = std::chrono::steady_clock::now();
@@ -171,7 +216,7 @@ static void renderStatus(brls::List* l, cJSON* d, long st) {
 }
 
 // ================================================================ FRIENDS tab
-static void buildFriends(brls::List* l);   // fwd
+static void buildFriends(brls::List* l);   // fwd (defined after buildFriendsImpl below)
 
 static void doLoginFlow(brls::List* l, bool registerMode) {
     askText(T("email"), [l, registerMode](std::string email) {
@@ -198,7 +243,13 @@ static void doLoginFlow(brls::List* l, bool registerMode) {
     });
 }
 
-static void buildFriends(brls::List* l) {
+// clear()-then-repopulate can null out Application's global focus (see the
+// long comment on LiveList::frame()) — buildFriends() is rebuilt from inside
+// click handlers on this very list (sign in/out, switch account, accept a
+// friend request...), i.e. exactly where the about-to-be-destroyed focused
+// view is the button the user just pressed. Restore focus once at the end
+// regardless of which of this function's early returns was taken.
+static void buildFriendsImpl(brls::List* l) {
     l->clear();
 
     if (!net::signedIn()) {
@@ -286,6 +337,11 @@ static void buildFriends(brls::List* l) {
     }
     if (gi(cnt, "total") == 0) note(l, T("no_friends"));
     cJSON_Delete(d);
+}
+static void buildFriends(brls::List* l) {
+    buildFriendsImpl(l);
+    if (!brls::Application::getCurrentFocus())
+        brls::Application::giveFocus(l->getDefaultFocus());
 }
 
 // ================================================================ SETTINGS tab
@@ -509,6 +565,14 @@ static void buildSettings(brls::List* l) {
             cJSON_Delete(me);
         }
     }
+
+    // See the matching comment on buildFriendsImpl()/LiveList::frame(): the
+    // l->clear() at the top of this function can null Application's global
+    // focus (e.g. when this rebuild was triggered by clicking a row on this
+    // very list), which otherwise silently breaks all controller input from
+    // here on.
+    if (!brls::Application::getCurrentFocus())
+        brls::Application::giveFocus(l->getDefaultFocus());
 }
 
 // ================================================================ main
@@ -533,7 +597,8 @@ int main(int argc, char* argv[]) {
     romfsInit();
 
     brls::Logger::setLogLevel(brls::LogLevel::INFO);
-    if (!brls::Application::init(APP_NAME)) { romfsExit(); setsysExit(); plExit(); return EXIT_FAILURE; }
+    auto* themeVariants = new brls::LibraryViewsThemeVariantsWrapper(new NextendoLightTheme(), new NextendoDarkTheme());
+    if (!brls::Application::init(APP_NAME, nullptr, themeVariants)) { romfsExit(); setsysExit(); plExit(); return EXIT_FAILURE; }
     net::init();
     i18n::loadLang();
     applyTheme(net::getPref("theme", "system"));
