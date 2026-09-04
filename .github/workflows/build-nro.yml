@@ -28,11 +28,20 @@ jobs:
       - name: Trust the checkout dir
         run: git config --global --add safe.directory '*'
 
+      # pkg.devkitpro.org sits behind Cloudflare and intermittently 403s
+      # requests from GitHub-hosted runners' shared IP ranges — a known
+      # flakiness, not a config problem. Retry with backoff instead of
+      # failing the whole job on the first hiccup.
       - name: Install Switch portlibs
         run: |
-          dkp-pacman -Sy --noconfirm --needed \
-            switch-dev switch-curl switch-mbedtls switch-zlib \
-            switch-glfw switch-glm switch-mesa switch-libdrm_nouveau
+          for i in 1 2 3 4 5; do
+            dkp-pacman -Sy --noconfirm --needed \
+              switch-dev switch-curl switch-mbedtls switch-zlib \
+              switch-glfw switch-glm switch-mesa switch-libdrm_nouveau && break
+            echo "pacman sync failed (attempt $i) — retrying in 15s..."
+            sleep 15
+            if [ "$i" = 5 ]; then exit 1; fi
+          done
 
       # Cache the cloned borealis checkout (pinned commit, see setup.sh) so
       # reruns don't re-clone+build it from scratch every time.
