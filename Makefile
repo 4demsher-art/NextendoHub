@@ -5,8 +5,8 @@ ifeq ($(strip $(DEVKITPRO)),)
 $(error DEVKITPRO is not set)
 endif
 
-# IMPORTANT: keep the repository root even when make recurses into build/.
-PROJECT_ROOT := $(abspath $(CURDIR))
+# Preserve the repository root when make recursively enters build/.
+PROJECT_ROOT ?= $(CURDIR)
 
 TARGET := NextendoHub
 BUILD := build
@@ -19,14 +19,14 @@ include $(DEVKITPRO)/libnx/switch_rules
 BOREALIS_PATH := $(PROJECT_ROOT)/lib/borealis
 PORTLIBS_SWITCH := $(DEVKITPRO)/portlibs/switch
 
-DEFINES := -DBOREALIS_RESOURCES=\"romfs:/\"
+DEFINES := -DBOREALIS_RESOURCES=\\\"romfs:/\\\"
 
 PROJECT_INCLUDES := \
-	-I$(PROJECT_ROOT)/source \
-	-I$(BOREALIS_PATH)/library/include \
-	-I$(BOREALIS_PATH)/library/include/libretro-common \
-	-I$(DEVKITPRO)/libnx/include \
-	-I$(PORTLIBS_SWITCH)/include
+    -I$(PROJECT_ROOT)/source \
+    -I$(BOREALIS_PATH)/library/include \
+    -I$(BOREALIS_PATH)/library/include/libretro-common \
+    -I$(DEVKITPRO)/libnx/include \
+    -I$(PORTLIBS_SWITCH)/include
 
 ARCH := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 
@@ -37,7 +37,6 @@ ASFLAGS := -g $(ARCH)
 LIBDIRS := -L$(PORTLIBS_SWITCH)/lib -L$(DEVKITPRO)/libnx/lib
 LIBS := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz
 
-# Use the repository-root Borealis, NEVER build/lib/borealis.
 include $(BOREALIS_PATH)/library/borealis.mk
 
 LIBS += -lpthread -lnx
@@ -46,6 +45,7 @@ ifneq ($(BUILD),$(notdir $(CURDIR)))
 
 export OUTPUT := $(PROJECT_ROOT)/$(TARGET)
 export TOPDIR := $(PROJECT_ROOT)
+export PROJECT_ROOT := $(PROJECT_ROOT)
 export VPATH := $(PROJECT_ROOT)/$(SOURCES)
 export DEPSDIR := $(PROJECT_ROOT)/$(BUILD)
 
@@ -56,7 +56,6 @@ SFILES := $(notdir $(wildcard $(PROJECT_ROOT)/source/*.s))
 export OFILES_SRC := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
 export OFILES := $(OFILES_SRC)
 export LD := $(CXX)
-
 export INCLUDE := $(PROJECT_INCLUDES) -I$(PROJECT_ROOT)/$(BUILD)
 export CFLAGS := $(CFLAGS)
 export CXXFLAGS := $(CXXFLAGS)
@@ -83,11 +82,9 @@ clean:
 else
 
 .PHONY: all
-
 DEPENDS := $(OFILES:.o=.d)
 
 all: $(OUTPUT).nro
-
 $(OUTPUT).nro: $(OUTPUT).elf $(OUTPUT).nacp
 $(OUTPUT).elf: $(OFILES)
 
