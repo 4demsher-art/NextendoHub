@@ -495,14 +495,27 @@ static void buildSettings(brls::List* l) {
 
 // ================================================================ main
 int main(int argc, char* argv[]) {
-    // Must happen before Application::init() — borealis loads its material
-    // icon font from romfs:/ as part of init() itself (and we load our own
-    // icon.jpg and net::CAINFO's cacert.pem from romfs:/ too). Without this,
-    // "romfs:/..." paths simply don't resolve.
+    // libnx's default __appInit() only auto-initializes sm/applet/hid/time/fs
+    // (checked against libnx's own runtime/init.c) — it does NOT init `pl`
+    // (shared font service) or leave `set:sys` open. borealis's Switch font
+    // loader calls plGetSharedFontByType() and its theme detection calls
+    // setsysGetColorSetId() assuming both are already initialized; neither
+    // borealis's own example nor this app ever called plInitialize(), so the
+    // shared font silently fails to load (Result is checked, but nothing
+    // downstream verifies fontStash.regular ended up valid) and the very
+    // first text draw call hands nanovg an invalid font handle — a very
+    // plausible cause of an instant crash on launch. Must happen before
+    // Application::init(), since it loads that font as part of init() itself.
+    plInitialize(PlServiceType_User);
+    setsysInitialize();
+
+    // Also needed before Application::init(): our own icon.jpg and
+    // net::CAINFO's cacert.pem are romfs:/ paths too, and devkitA64 doesn't
+    // auto-mount romfs for .nro homebrew.
     romfsInit();
 
     brls::Logger::setLogLevel(brls::LogLevel::INFO);
-    if (!brls::Application::init(APP_NAME)) { romfsExit(); return EXIT_FAILURE; }
+    if (!brls::Application::init(APP_NAME)) { romfsExit(); setsysExit(); plExit(); return EXIT_FAILURE; }
     net::init();
     i18n::loadLang();
     applyTheme(net::getPref("theme", "system"));
@@ -531,5 +544,7 @@ int main(int argc, char* argv[]) {
 
     net::shutdown();
     romfsExit();
+    setsysExit();
+    plExit();
     return EXIT_SUCCESS;
 }
