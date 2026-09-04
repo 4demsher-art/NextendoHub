@@ -5,30 +5,28 @@ ifeq ($(strip $(DEVKITPRO)),)
 $(error DEVKITPRO is not set)
 endif
 
-TOPDIR := $(CURDIR)
+# IMPORTANT: keep the repository root even when make recurses into build/.
+PROJECT_ROOT := $(abspath $(CURDIR))
+
 TARGET := NextendoHub
 BUILD := build
 SOURCES := source
 ROMFS := romfs
 ICON := icon.jpg
 
-# Standard Switch/libnx rules.
 include $(DEVKITPRO)/libnx/switch_rules
 
-BOREALIS_PATH := $(TOPDIR)/lib/borealis
+BOREALIS_PATH := $(PROJECT_ROOT)/lib/borealis
 PORTLIBS_SWITCH := $(DEVKITPRO)/portlibs/switch
 
-# Explicit include paths. The recursive make below runs from build/,
-# so every project/dependency path is anchored at TOPDIR.
+DEFINES := -DBOREALIS_RESOURCES=\"romfs:/\"
+
 PROJECT_INCLUDES := \
-	-I$(TOPDIR)/source \
+	-I$(PROJECT_ROOT)/source \
 	-I$(BOREALIS_PATH)/library/include \
 	-I$(BOREALIS_PATH)/library/include/libretro-common \
 	-I$(DEVKITPRO)/libnx/include \
 	-I$(PORTLIBS_SWITCH)/include
-
-# Borealis needs this at compile time.
-DEFINES := -DBOREALIS_RESOURCES=\"romfs:/\"
 
 ARCH := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 
@@ -36,47 +34,47 @@ CFLAGS := -g -Wall -O2 -ffunction-sections $(ARCH) $(DEFINES) $(PROJECT_INCLUDES
 CXXFLAGS := $(CFLAGS) -std=gnu++17
 ASFLAGS := -g $(ARCH)
 
-# Portlib locations supplied by devkitpro/devkita64.
 LIBDIRS := -L$(PORTLIBS_SWITCH)/lib -L$(DEVKITPRO)/libnx/lib
 LIBS := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz
 
-# Borealis adds its own sources and libraries.
+# Use the repository-root Borealis, NEVER build/lib/borealis.
 include $(BOREALIS_PATH)/library/borealis.mk
 
 LIBS += -lpthread -lnx
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
-export OUTPUT := $(CURDIR)/$(TARGET)
-export TOPDIR := $(CURDIR)
-export VPATH := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
-export DEPSDIR := $(CURDIR)/$(BUILD)
+export OUTPUT := $(PROJECT_ROOT)/$(TARGET)
+export TOPDIR := $(PROJECT_ROOT)
+export VPATH := $(PROJECT_ROOT)/$(SOURCES)
+export DEPSDIR := $(PROJECT_ROOT)/$(BUILD)
 
-CPPFILES := $(notdir $(wildcard $(CURDIR)/source/*.cpp))
-CFILES := $(notdir $(wildcard $(CURDIR)/source/*.c))
-SFILES := $(notdir $(wildcard $(CURDIR)/source/*.s))
+CPPFILES := $(notdir $(wildcard $(PROJECT_ROOT)/source/*.cpp))
+CFILES := $(notdir $(wildcard $(PROJECT_ROOT)/source/*.c))
+SFILES := $(notdir $(wildcard $(PROJECT_ROOT)/source/*.s))
 
 export OFILES_SRC := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
 export OFILES := $(OFILES_SRC)
 export LD := $(CXX)
 
-export INCLUDE := $(PROJECT_INCLUDES) -I$(CURDIR)/$(BUILD)
+export INCLUDE := $(PROJECT_INCLUDES) -I$(PROJECT_ROOT)/$(BUILD)
 export CFLAGS := $(CFLAGS)
 export CXXFLAGS := $(CXXFLAGS)
 export ASFLAGS := $(ASFLAGS)
 export LIBS := $(LIBS)
 export LIBPATHS := $(LIBDIRS)
 
-export APP_ICON := $(TOPDIR)/$(ICON)
-export NROFLAGS += --icon=$(APP_ICON) --nacp=$(CURDIR)/$(TARGET).nacp
-export NROFLAGS += --romfsdir=$(TOPDIR)/$(ROMFS)
+export APP_ICON := $(PROJECT_ROOT)/$(ICON)
+export NROFLAGS += --icon=$(APP_ICON) --nacp=$(PROJECT_ROOT)/$(TARGET).nacp
+export NROFLAGS += --romfsdir=$(PROJECT_ROOT)/$(ROMFS)
 
 .PHONY: all clean $(BUILD)
+
 all: $(BUILD)
 
 $(BUILD):
 	@mkdir -p $@
-	@$(MAKE) --no-print-directory -C $@ -f $(TOPDIR)/Makefile
+	@$(MAKE) --no-print-directory -C $@ -f $(PROJECT_ROOT)/Makefile
 
 clean:
 	@echo clean ...
@@ -85,6 +83,7 @@ clean:
 else
 
 .PHONY: all
+
 DEPENDS := $(OFILES:.o=.d)
 
 all: $(OUTPUT).nro
