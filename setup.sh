@@ -5,10 +5,12 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 BOREALIS_REPO="https://github.com/natinusala/borealis"
-# classic borealis (plain-Makefile friendly, brls::TabFrame / brls::List API).
-# Pinned to a verified-existing commit on `main` (checked against the GitHub
-# API before pinning) so this doesn't depend on a moving branch tip.
-BOREALIS_REF="20e2d33b6c4ffce139ce304c503c04f5b94da920"
+# `main` is a WIP rewrite (deko3d/yoga, missing List/TabFrame/Swkbd/Dropdown
+# and most of the API this app is written against). The classic GLFW+GL API
+# (brls::TabFrame / brls::List / brls::Swkbd / brls::Dropdown / brls::Dialog)
+# lives on the `legacy` branch — pin its tip commit (verified against the
+# GitHub API before pinning) so this doesn't depend on a moving branch ref.
+BOREALIS_REF="cbdc1b65314d1eeb2799deae5cf6f113d6d67b46"
 
 if [ ! -d lib/borealis/library ]; then
   echo "==> fetching borealis ($BOREALIS_REF)"

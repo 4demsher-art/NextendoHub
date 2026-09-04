@@ -31,7 +31,7 @@ bridge — every `ipcMain.handle` from the desktop `main.js` has an equivalent.
 | **Profile: colour swatches** | ✅ dropdown of the 12 hex colours → `PUT /api/profile` |
 | **Cloud saves** — quota, download, delete, gate messages | ✅ `/api/saves`; download → `sdmc:/switch/nextendo-hub/saves/*.zip`; delete via dialog |
 | **Favourite mods** | ✅ `/api/mod-favorites` (best effort) |
-| **Settings: theme** (system/light/dark) | ✅ `brls::Application::setThemeVariant` + persisted |
+| **Settings: theme** (system/light/dark) | preference stored, but this borealis build has no runtime setter — see note below |
 | **Settings: language** (en/fr/es) | ✅ `i18n.hpp`, persisted; reopen tabs to fully re-translate |
 | **Settings: launch at startup** | shown as **"not applicable on Switch"** |
 | **"Made by adxmm / Founders JuanBrew · Kazu" credit** | ✅ About section; friend code auto-captured when adxmm signs in |
@@ -47,21 +47,32 @@ bridge — every `ipcMain.handle` from the desktop `main.js` has an equivalent.
 # devkitPro installed (Windows graphical installer + MSYS2, or the
 # devkitpro/devkita64 Docker image):
 (dkp-)pacman -S switch-dev switch-curl switch-mbedtls switch-zlib \
-               switch-glfw switch-glm switch-mesa switch-libdrm_nouveau
+               switch-glfw switch-mesa switch-libdrm_nouveau
 
 cd NextendoHub-nx
 ./setup.sh          # once — git clone borealis, stage its resources into romfs/
 make               # -> NextendoHub.nro
 ```
 
+Or push this to GitHub and let `.github/workflows/build-nro.yml` build it —
+see the repo root README for the CI setup.
+
 Put `NextendoHub.nro` under `sdmc:/switch/NextendoHub/` and launch from the
 Homebrew Menu via a **full launch / title-takeover** (hold R on a game) so it has
 socket access (applet-mode hbmenu has no network).
 
-> Not compiled here (no devkitPro on Windows). The libnx/borealis API calls are
-> written to the classic-borealis API; expect a short shakeout pass on a devkit —
-> most likely spots: `brls::Application::setThemeVariant` (drop if absent),
-> `Swkbd`/`Dropdown`/`Dialog` exact signatures, and `-lpthread` ordering.
+> Not compiled here (no devkitPro on Windows). `source/main.cpp` is written
+> against borealis's **`legacy` branch** API (the classic GLFW+GL renderer:
+> `brls::List`/`ListItem`/`TabFrame`/`Swkbd`/`Dropdown`/`Dialog`), which
+> `setup.sh` pins to a verified commit. borealis's `main` branch is a
+> different, in-progress deko3d/yoga rewrite missing most of that API — an
+> earlier version of this project mistakenly pinned `main` and failed to
+> build; if you ever repoint `setup.sh` at a different ref, repoint it at
+> `legacy`, not `main`. One known gap even on `legacy`: there's no runtime
+> theme setter (`Application::setThemeVariant` doesn't exist there either) —
+> theme is decided once at `Application::init()` before prefs can even be
+> read, so the Settings theme picker stores a preference but has no visible
+> effect on Switch; see the `theme_na` string in `source/i18n.hpp`.
 
 ## Files
 

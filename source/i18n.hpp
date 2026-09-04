@@ -84,6 +84,7 @@ inline const char* T(const char* k) {
       { "version", {{"en","Version"},{"fr","Version"},{"es","Versión"}} },
       { "refresh_hint",{{"en","Refresh"},{"fr","Actualiser"},{"es","Actualizar"}} },
       { "live",    {{"en","live"},{"fr","en direct"},{"es","en vivo"}} },
+      { "theme_na",{{"en","Saved — this build always follows the console theme"},{"fr","Enregistré — cette version suit toujours le thème de la console"},{"es","Guardado — esta versión siempre sigue el tema de la consola"}} },
     };
     auto it = M.find(k);
     if (it == M.end()) return k;

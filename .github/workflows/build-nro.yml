@@ -37,7 +37,7 @@ jobs:
           for i in 1 2 3 4 5; do
             dkp-pacman -Sy --noconfirm --needed \
               switch-dev switch-curl switch-mbedtls switch-zlib \
-              switch-glfw switch-glm switch-mesa switch-libdrm_nouveau && break
+              switch-glfw switch-mesa switch-libdrm_nouveau && break
             echo "pacman sync failed (attempt $i) — retrying in 15s..."
             sleep 15
             if [ "$i" = 5 ]; then exit 1; fi
@@ -55,13 +55,6 @@ jobs:
         run: |
           chmod +x setup.sh
           ./setup.sh
-
-      # `uam` (deko3d's shader compiler) is what turns borealis's .glsl
-      # shaders into the .dksh files it needs in romfs at runtime. It should
-      # already be on PATH in this image; fall back to installing it
-      # explicitly (switch-tools) if a future image slims it out.
-      - name: Ensure uam (deko3d shader compiler) is available
-        run: command -v uam || dkp-pacman -S --noconfirm --needed switch-tools
 
       - name: Build NextendoHub.nro
         run: make -j$(nproc)

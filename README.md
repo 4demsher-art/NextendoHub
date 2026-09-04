@@ -10,11 +10,15 @@ Windows without the toolchain. See `PLAN.md`.
 
 ```bash
 (dkp-)pacman -S switch-dev switch-curl switch-mbedtls switch-zlib \
-               switch-glfw switch-glm switch-mesa switch-libdrm_nouveau
+               switch-glfw switch-mesa switch-libdrm_nouveau
 cd NextendoHub-nx
-./setup.sh        # once: git clone borealis + stage resources
+./setup.sh        # once: git clone borealis (legacy branch) + stage resources
 make             # -> NextendoHub.nro
 ```
+
+Or push this repo to GitHub — `.github/workflows/build-nro.yml` builds it in
+CI (the official `devkitpro/devkita64` container) and uploads `NextendoHub.nro`
+as a workflow artifact on every push.
 
 Put `NextendoHub.nro` under `sdmc:/switch/` and launch from the Homebrew Menu via
 a full launch / title-takeover (hold R on a game) so it has network.

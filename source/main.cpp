@@ -263,11 +263,12 @@ static void buildFriends(brls::List* l) {
 static const char* SWATCHES[] = { "#1ca9e0","#e4404a","#36ce73","#8b5cf6","#f59e0b","#ec4899",
                                   "#14b8a6","#eab308","#6366f1","#ef7c3a","#22d3ee","#64748b" };
 
-static void applyTheme(const std::string& t) {
-    // borealis auto-follows the console theme; "light"/"dark" force it.
-    if (t == "light") brls::Application::setThemeVariant(brls::ThemeVariant::LIGHT);
-    else if (t == "dark") brls::Application::setThemeVariant(brls::ThemeVariant::DARK);
-    // "system" -> leave borealis' auto-detection alone
+static void applyTheme(const std::string& /*t*/) {
+    // This borealis version auto-follows the console's theme and only reads
+    // it once at Application::init(), before prefs can even be loaded —
+    // there's no supported way to force light/dark from inside the app.
+    // The Settings picker still stores the choice (parity with the other
+    // platforms) but it has no visible effect here; see theme_na.
 }
 
 static void buildAvatarGallery(brls::List* parent) {
@@ -314,6 +315,7 @@ static void buildSettings(brls::List* l) {
         brls::Dropdown::open(T("theme"), { T("th_system"), T("th_light"), T("th_dark") }, [l](int i) {
             const char* v = i == 1 ? "light" : i == 2 ? "dark" : "system";
             net::setPref("theme", v); applyTheme(v); buildSettings(l);
+            brls::Application::notify(T("theme_na"));
         }, net::getPref("theme", "system") == "light" ? 1 : net::getPref("theme", "system") == "dark" ? 2 : 0);
     });
     l->addView(th);
