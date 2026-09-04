@@ -1,16 +1,16 @@
 #---------------------------------------------------------------------------------
-# NextendoHub for Nintendo Switch homebrew (.nro)
-# devkitPro / libnx + Borealis legacy
+# NextendoHub - Nintendo Switch homebrew
+# Based on the standard devkitPro/libnx Makefile layout.
 #---------------------------------------------------------------------------------
 .SUFFIXES:
 
 ifeq ($(strip $(DEVKITPRO)),)
-$(error "DEVKITPRO not set")
+$(error "Please set DEVKITPRO in your environment")
 endif
 
 TOPDIR ?= $(CURDIR)
 
-# libnx's official Switch rules provide switch.h and the NRO/NSO toolchain.
+# Standard libnx Switch rules. This supplies switch.h and the NRO linker rules.
 include $(DEVKITPRO)/libnx/switch_rules
 
 TARGET := NextendoHub
@@ -18,42 +18,39 @@ BUILD := build
 
 SOURCES := source
 DATA := data
-ROMFS := romfs
+INCLUDES := include
 
-APP_TITLE := Nextendo Hub
-APP_AUTHOR := adxmm - Founders of Nextendo Network: JuanBrew, Kazu
-APP_VERSION := 1.0.0
+ROMFS := romfs
 ICON := icon.jpg
 
 BOREALIS_PATH := $(TOPDIR)/lib/borealis
-BOREALIS_INCLUDE := $(BOREALIS_PATH)/library/include
 
-# Borealis requires this resource path at compile time.
+# Borealis legacy expects this compile-time resource definition.
 DEFINES += -DBOREALIS_RESOURCES=\"romfs:/\"
 
 ARCH := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 
-CFLAGS := -g -Wall -O2 -ffunction-sections $(ARCH) $(DEFINES)
-CFLAGS += -D__SWITCH__
-CXXFLAGS := $(CFLAGS) -std=gnu++17
+CFLAGS := -g -Wall -O2 -ffunction-sections $(ARCH)
+CFLAGS += $(DEFINES) $(INCLUDE) -D__SWITCH__
+
+CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++17
 ASFLAGS := -g $(ARCH)
 
-# Dependencies used by the application/Borealis.
-LIBS := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz
+# Libraries required by NextendoHub/Borealis.
+LIBS := -lnx -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz
 
-# Borealis' makefile adds its own source/include/library requirements.
-# BOREALIS_PATH must be defined before including it.
+# Borealis must be included after LIBDIRS and BOREALIS_PATH are defined.
 include $(BOREALIS_PATH)/library/borealis.mk
-
-LIBS += -lpthread -lnx
 
 #---------------------------------------------------------------------------------
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
 export OUTPUT := $(CURDIR)/$(TARGET)
 export TOPDIR := $(TOPDIR)
+
 export VPATH := $(foreach dir,$(SOURCES),$(TOPDIR)/$(dir)) \
                 $(foreach dir,$(DATA),$(TOPDIR)/$(dir))
+
 export DEPSDIR := $(TOPDIR)/$(BUILD)
 
 CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(TOPDIR)/$(dir)/*.c)))
@@ -61,31 +58,27 @@ CPPFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(TOPDIR)/$(dir)/*.cpp)
 SFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(TOPDIR)/$(dir)/*.s)))
 BINFILES := $(foreach dir,$(DATA),$(notdir $(wildcard $(TOPDIR)/$(dir)/*.*)))
 
-export LD := $(CXX)
-
 export OFILES_BIN := $(addsuffix .o,$(BINFILES))
 export OFILES_SRC := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
 export OFILES := $(OFILES_BIN) $(OFILES_SRC)
 export HFILES_BIN := $(addsuffix .h,$(subst .,_,$(BINFILES)))
 
-# IMPORTANT:
-# The recursive make runs with CURDIR=$(TOPDIR)/build. Therefore relative
-# include paths must be anchored to TOPDIR, not CURDIR.
+# These are the directories actually passed to gcc/g++.
+# libnx: switch.h
+# Borealis: borealis.hpp
+# libretro-common: libretro-common/features/features_cpu.h
 export INCLUDE := \
+    $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
     -I$(TOPDIR)/source \
-    -I$(BOREALIS_INCLUDE) \
-    -I$(BOREALIS_PATH) \
+    -I$(TOPDIR)/lib/borealis/library/include \
+    -I$(TOPDIR)/lib/borealis \
+    -I$(TOPDIR)/lib \
     -I$(DEVKITPRO)/libnx/include \
     $(foreach dir,$(LIBDIRS),-I$(dir)/include) \
-    -I$(TOPDIR)/$(BUILD)
+    -I$(CURDIR)/$(BUILD)
 
-# Borealis legacy's vendored/expected libretro-common headers, if present.
-ifneq ($(wildcard $(BOREALIS_PATH)/library/include/libretro-common),)
-export INCLUDE += -I$(BOREALIS_PATH)/library/include/libretro-common
-endif
-ifneq ($(wildcard $(BOREALIS_PATH)/library/libretro-common/include),)
-export INCLUDE += -I$(BOREALIS_PATH)/library/libretro-common/include
-endif
+export CXXFLAGS := $(CXXFLAGS) $(DEFINES) $(INCLUDE)
+export CFLAGS := $(CFLAGS) $(DEFINES) $(INCLUDE)
 
 export LIBPATHS := \
     -L$(DEVKITPRO)/libnx/lib \
@@ -99,6 +92,7 @@ export NROFLAGS += --romfsdir=$(TOPDIR)/$(ROMFS)
 endif
 
 .PHONY: all clean $(BUILD)
+
 all: $(BUILD)
 
 $(BUILD):
@@ -112,6 +106,7 @@ clean:
 else
 
 .PHONY: all
+
 DEPENDS := $(OFILES:.o=.d)
 
 all: $(OUTPUT).nro
