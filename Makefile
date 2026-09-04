@@ -5,9 +5,7 @@ ifeq ($(strip $(DEVKITPRO)),)
 $(error DEVKITPRO is not set)
 endif
 
-# Preserve the repository root when make recursively enters build/.
 PROJECT_ROOT ?= $(CURDIR)
-
 TARGET := NextendoHub
 BUILD := build
 SOURCES := source
@@ -19,17 +17,15 @@ include $(DEVKITPRO)/libnx/switch_rules
 BOREALIS_PATH := $(PROJECT_ROOT)/lib/borealis
 PORTLIBS_SWITCH := $(DEVKITPRO)/portlibs/switch
 
-DEFINES := -DBOREALIS_RESOURCES=\\\"romfs:/\\\"
+DEFINES := -DBOREALIS_RESOURCES=\"romfs:/\"
 
 PROJECT_INCLUDES := \
-    -I$(PROJECT_ROOT)/source \
-    -I$(BOREALIS_PATH)/library/include \
-    -I$(BOREALIS_PATH)/library/include/libretro-common \
-    -I$(DEVKITPRO)/libnx/include \
-    -I$(PORTLIBS_SWITCH)/include
+	-I$(PROJECT_ROOT)/source \
+	-I$(BOREALIS_PATH)/library/include \
+	-I$(DEVKITPRO)/libnx/include \
+	-I$(PORTLIBS_SWITCH)/include
 
-ARCH := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
-
+ARCH := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft
 CFLAGS := -g -Wall -O2 -ffunction-sections $(ARCH) $(DEFINES) $(PROJECT_INCLUDES) -D__SWITCH__
 CXXFLAGS := $(CFLAGS) -std=gnu++17
 ASFLAGS := -g $(ARCH)
@@ -68,7 +64,6 @@ export NROFLAGS += --icon=$(APP_ICON) --nacp=$(PROJECT_ROOT)/$(TARGET).nacp
 export NROFLAGS += --romfsdir=$(PROJECT_ROOT)/$(ROMFS)
 
 .PHONY: all clean $(BUILD)
-
 all: $(BUILD)
 
 $(BUILD):
