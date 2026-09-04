@@ -30,12 +30,15 @@ static const char* APP_NAME = "Nextendo Hub";
 // ================================================================ theme
 // borealis's default look is Nintendo's own system blue (HorizonLightTheme /
 // HorizonDarkTheme, see theme.cpp) — not this app's branding. Subclass both
-// and override the accent-bearing fields AND the base ground colour to the
-// *actual* desktop app's values, read straight out of renderer/index.html's
-// CSS :root / :root[data-theme="dark"] blocks:
-//   --accent:#d6197d / #ff3ea5     --ground:#f4f0fa / #0e0a15
-// Every other native Switch UI colour (text, separators, sidebar...) stays
-// exactly as borealis draws it.
+// and override the accent-bearing fields, the base ground colour, AND the
+// sidebar colour to the *actual* desktop app's values, read straight out of
+// renderer/index.html's CSS :root / :root[data-theme="dark"] blocks:
+//   --accent:#d6197d / #ff3ea5   --ground:#f4f0fa / #0e0a15   --raise:#ffffff / #171021
+// The sidebar/dialog fields matter as much as --ground: TabFrame's sidebar
+// (and Dialog's own panel) are separate Theme fields from the page
+// background — leaving them at Horizon's own defaults while --ground was
+// fixed is exactly what produced a sidebar that didn't match the rest of
+// the app.
 static NVGcolor ACCENT_LIGHT() { return nvgRGB(0xd6, 0x19, 0x7d); }
 static NVGcolor ACCENT_DARK()  { return nvgRGB(0xff, 0x3e, 0xa5); }
 
@@ -51,6 +54,11 @@ public:
         dialogButtonColor                   = a;
         backgroundColor[0] = 0xf4 / 255.0f; backgroundColor[1] = 0xf0 / 255.0f; backgroundColor[2] = 0xfa / 255.0f;
         backgroundColorRGB = nvgRGB(0xf4, 0xf0, 0xfa);
+        sidebarColor          = nvgRGB(0xff, 0xff, 0xff); // --raise
+        dialogColor           = nvgRGB(0xff, 0xff, 0xff); // --raise
+        tableEvenBackgroundColor = nvgRGB(0xe9, 0xe2, 0xf3); // --sink
+        sidebarSeparatorColor = nvgRGB(0xd8, 0xd0, 0xe6);
+        listItemSeparatorColor = nvgRGB(0xe4, 0xdc, 0xf0);
     }
 };
 class NextendoDarkTheme : public brls::HorizonDarkTheme {
@@ -65,6 +73,27 @@ public:
         dialogButtonColor                   = a;
         backgroundColor[0] = 0x0e / 255.0f; backgroundColor[1] = 0x0a / 255.0f; backgroundColor[2] = 0x15 / 255.0f;
         backgroundColorRGB = nvgRGB(0x0e, 0x0a, 0x15);
+        sidebarColor          = nvgRGB(0x17, 0x10, 0x21); // --raise
+        dialogColor           = nvgRGB(0x17, 0x10, 0x21); // --raise
+        tableEvenBackgroundColor = nvgRGB(0x12, 0x0c, 0x1c); // --sink
+        sidebarSeparatorColor = nvgRGB(0x2a, 0x22, 0x38);
+        listItemSeparatorColor = nvgRGB(0x28, 0x20, 0x36);
+    }
+};
+
+// The Switch-native focus highlight (the rounded box that tracks whatever's
+// selected — the closest thing this UI has to "a button") was drawn nearly
+// square: Style.Highlight.cornerRadius defaults to 0.5f (View::
+// getHighlightMetrics(), confirmed by reading view.hpp/view.cpp — it's a
+// literal pixel radius passed straight to nvgRoundedRect, not a ratio).
+// Rounded that up along with Dialog's and Button's own corner radii for the
+// same reason.
+class NextendoStyle : public brls::HorizonStyle {
+public:
+    NextendoStyle() : brls::HorizonStyle() {
+        Highlight.cornerRadius = 14.0f;
+        Dialog.cornerRadius    = 16.0f;
+        Button.cornerRadius    = 12.0f;
     }
 };
 
@@ -791,7 +820,7 @@ int main(int argc, char* argv[]) {
 
     brls::Logger::setLogLevel(brls::LogLevel::INFO);
     auto* themeVariants = new brls::LibraryViewsThemeVariantsWrapper(new NextendoLightTheme(), new NextendoDarkTheme());
-    if (!brls::Application::init(APP_NAME, nullptr, themeVariants)) { romfsExit(); setsysExit(); plExit(); return EXIT_FAILURE; }
+    if (!brls::Application::init(APP_NAME, new NextendoStyle(), themeVariants)) { romfsExit(); setsysExit(); plExit(); return EXIT_FAILURE; }
     brls::Application::setBackground(new NextendoBackground());
     // borealis's OWN i18n system (brls::i18n — distinct from this app's own
     // i18n::T() above) is what supplies the text for its built-in hints: the
@@ -812,7 +841,11 @@ int main(int argc, char* argv[]) {
 
     auto* root = new brls::TabFrame();
     root->setTitle(APP_NAME);
-    root->setIcon("romfs:/icon.jpg");
+    // The Homebrew Menu tile / NACP icon (icon.jpg, baseline JPEG — required,
+    // can't have alpha) is untouched. The in-app header icon is a separate
+    // asset so it can be a transparent PNG instead of sitting in an opaque
+    // black square.
+    root->setIcon("romfs:/icon-header.png");
 
     // Tab order and default (first-added = shown on launch) match the exe's
     // taskbar exactly: Profile, Online, Status, Settings — see
