@@ -21,6 +21,16 @@ if [ ! -d lib/borealis/library ]; then
   git -C lib/borealis fetch --depth 1 origin "$BOREALIS_REF"
   git -C lib/borealis checkout -q FETCH_HEAD
   git -C lib/borealis submodule update --init --recursive --depth 1
+
+  # This borealis commit is from Jan 2021 and was never updated for later
+  # libnx releases. swkbdConfigSetStringLenMaxExt() was removed from libnx
+  # at some point since (confirmed against current switchbrew/libnx master —
+  # no such symbol). It only ever set an internal SwkbdConfig struct field
+  # (arg.arg.arg.stringLenMaxExt) as a secondary/extended max-length flag;
+  # swkbdConfigSetStringLenMax() right above it already sets the real max,
+  # so dropping the call is safe.
+  echo "==> patching borealis/swkbd.cpp for current libnx (removed swkbdConfigSetStringLenMaxExt)"
+  sed -i '/swkbdConfigSetStringLenMaxExt/d' lib/borealis/library/lib/swkbd.cpp
 fi
 
 echo "==> staging borealis resources into romfs/"
