@@ -1,98 +1,77 @@
-#---------------------------------------------------------------------------------
-# NextendoHub - Nintendo Switch homebrew
-# Based on the standard devkitPro/libnx Makefile layout.
-#---------------------------------------------------------------------------------
+# NextendoHub Nintendo Switch NRO build
 .SUFFIXES:
 
 ifeq ($(strip $(DEVKITPRO)),)
-$(error "Please set DEVKITPRO in your environment")
+$(error DEVKITPRO is not set)
 endif
 
-TOPDIR ?= $(CURDIR)
-
-# Standard libnx Switch rules. This supplies switch.h and the NRO linker rules.
-include $(DEVKITPRO)/libnx/switch_rules
-
+TOPDIR := $(CURDIR)
 TARGET := NextendoHub
 BUILD := build
-
 SOURCES := source
-DATA := data
-INCLUDES := include
-
 ROMFS := romfs
 ICON := icon.jpg
 
-BOREALIS_PATH := $(TOPDIR)/lib/borealis
+# Standard Switch/libnx rules.
+include $(DEVKITPRO)/libnx/switch_rules
 
-# Borealis legacy expects this compile-time resource definition.
-DEFINES += -DBOREALIS_RESOURCES=\"romfs:/\"
+BOREALIS_PATH := $(TOPDIR)/lib/borealis
+PORTLIBS_SWITCH := $(DEVKITPRO)/portlibs/switch
+
+# Explicit include paths. The recursive make below runs from build/,
+# so every project/dependency path is anchored at TOPDIR.
+PROJECT_INCLUDES := \
+	-I$(TOPDIR)/source \
+	-I$(BOREALIS_PATH)/library/include \
+	-I$(BOREALIS_PATH)/library/include/libretro-common \
+	-I$(DEVKITPRO)/libnx/include \
+	-I$(PORTLIBS_SWITCH)/include
+
+# Borealis needs this at compile time.
+DEFINES := -DBOREALIS_RESOURCES=\"romfs:/\"
 
 ARCH := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 
-CFLAGS := -g -Wall -O2 -ffunction-sections $(ARCH)
-CFLAGS += $(DEFINES) $(INCLUDE) -D__SWITCH__
-
-CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++17
+CFLAGS := -g -Wall -O2 -ffunction-sections $(ARCH) $(DEFINES) $(PROJECT_INCLUDES) -D__SWITCH__
+CXXFLAGS := $(CFLAGS) -std=gnu++17
 ASFLAGS := -g $(ARCH)
 
-# Libraries required by NextendoHub/Borealis.
-LIBS := -lnx -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz
+# Portlib locations supplied by devkitpro/devkita64.
+LIBDIRS := -L$(PORTLIBS_SWITCH)/lib -L$(DEVKITPRO)/libnx/lib
+LIBS := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz
 
-# Borealis must be included after LIBDIRS and BOREALIS_PATH are defined.
+# Borealis adds its own sources and libraries.
 include $(BOREALIS_PATH)/library/borealis.mk
 
-#---------------------------------------------------------------------------------
+LIBS += -lpthread -lnx
+
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
 export OUTPUT := $(CURDIR)/$(TARGET)
-export TOPDIR := $(TOPDIR)
+export TOPDIR := $(CURDIR)
+export VPATH := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
+export DEPSDIR := $(CURDIR)/$(BUILD)
 
-export VPATH := $(foreach dir,$(SOURCES),$(TOPDIR)/$(dir)) \
-                $(foreach dir,$(DATA),$(TOPDIR)/$(dir))
+CPPFILES := $(notdir $(wildcard $(CURDIR)/source/*.cpp))
+CFILES := $(notdir $(wildcard $(CURDIR)/source/*.c))
+SFILES := $(notdir $(wildcard $(CURDIR)/source/*.s))
 
-export DEPSDIR := $(TOPDIR)/$(BUILD)
-
-CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(TOPDIR)/$(dir)/*.c)))
-CPPFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(TOPDIR)/$(dir)/*.cpp)))
-SFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(TOPDIR)/$(dir)/*.s)))
-BINFILES := $(foreach dir,$(DATA),$(notdir $(wildcard $(TOPDIR)/$(dir)/*.*)))
-
-export OFILES_BIN := $(addsuffix .o,$(BINFILES))
 export OFILES_SRC := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
-export OFILES := $(OFILES_BIN) $(OFILES_SRC)
-export HFILES_BIN := $(addsuffix .h,$(subst .,_,$(BINFILES)))
+export OFILES := $(OFILES_SRC)
+export LD := $(CXX)
 
-# These are the directories actually passed to gcc/g++.
-# libnx: switch.h
-# Borealis: borealis.hpp
-# libretro-common: libretro-common/features/features_cpu.h
-export INCLUDE := \
-    $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
-    -I$(TOPDIR)/source \
-    -I$(TOPDIR)/lib/borealis/library/include \
-    -I$(TOPDIR)/lib/borealis \
-    -I$(TOPDIR)/lib \
-    -I$(DEVKITPRO)/libnx/include \
-    $(foreach dir,$(LIBDIRS),-I$(dir)/include) \
-    -I$(CURDIR)/$(BUILD)
-
-export CXXFLAGS := $(CXXFLAGS) $(DEFINES) $(INCLUDE)
-export CFLAGS := $(CFLAGS) $(DEFINES) $(INCLUDE)
-
-export LIBPATHS := \
-    -L$(DEVKITPRO)/libnx/lib \
-    $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+export INCLUDE := $(PROJECT_INCLUDES) -I$(CURDIR)/$(BUILD)
+export CFLAGS := $(CFLAGS)
+export CXXFLAGS := $(CXXFLAGS)
+export ASFLAGS := $(ASFLAGS)
+export LIBS := $(LIBS)
+export LIBPATHS := $(LIBDIRS)
 
 export APP_ICON := $(TOPDIR)/$(ICON)
 export NROFLAGS += --icon=$(APP_ICON) --nacp=$(CURDIR)/$(TARGET).nacp
-
-ifneq ($(ROMFS),)
 export NROFLAGS += --romfsdir=$(TOPDIR)/$(ROMFS)
-endif
 
 .PHONY: all clean $(BUILD)
-
 all: $(BUILD)
 
 $(BUILD):
@@ -101,25 +80,17 @@ $(BUILD):
 
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).nro $(TARGET).nacp $(TARGET).elf
+	@rm -rf $(BUILD) $(TARGET).nro $(TARGET).nacp $(TARGET).elf
 
 else
 
 .PHONY: all
-
 DEPENDS := $(OFILES:.o=.d)
 
 all: $(OUTPUT).nro
 
 $(OUTPUT).nro: $(OUTPUT).elf $(OUTPUT).nacp
-
 $(OUTPUT).elf: $(OFILES)
-
-$(OFILES_SRC): $(HFILES_BIN)
-
-%.bin.o %_bin.h: %.bin
-	@echo $(notdir $<)
-	@$(bin2o)
 
 -include $(DEPENDS)
 
