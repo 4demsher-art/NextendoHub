@@ -146,6 +146,32 @@ std::string b64(const unsigned char* p, size_t n) {
     }
     return o;
 }
+// Extracts and decodes the base64 payload of a "data:image/...;base64,XXXX"
+// URI (as produced by imgURI() above) back into raw image bytes, for
+// borealis's ListItem::setThumbnail(buffer, size) / Image(buffer, size).
+bool imageBytesFromDataUri(const std::string& uri, std::string& out) {
+    size_t c = uri.find(",");
+    if (uri.rfind("data:image/", 0) != 0 || c == std::string::npos) return false;
+    static int T[256]; static bool init = false;
+    if (!init) {
+        for (int i = 0; i < 256; i++) T[i] = -1;
+        const char* A = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        for (int i = 0; i < 64; i++) T[(unsigned char)A[i]] = i;
+        init = true;
+    }
+    out.clear();
+    int val = 0, bits = -8;
+    for (size_t i = c + 1; i < uri.size(); i++) {
+        unsigned char ch = uri[i];
+        if (ch == '=') break;
+        int d = T[ch];
+        if (d < 0) continue; // skip whitespace/newlines, same tolerance most decoders use
+        val = (val << 6) | d;
+        bits += 6;
+        if (bits >= 0) { out += (char)((val >> bits) & 0xFF); bits -= 8; }
+    }
+    return !out.empty();
+}
 
 // ---------------------------------------------------------------- prefs
 std::string getPref(const char* key, const std::string& dflt) {
@@ -428,6 +454,7 @@ cJSON* friends(long* st) {
         cJSON* fo = cJSON_CreateObject();
         cJSON_AddStringToObject(fo, "name", gs(f, "name", gs(f, "username", "-")));
         cJSON_AddStringToObject(fo, "code", gs(f, "friend_code", gs(f, "code", "")));
+        cJSON_AddStringToObject(fo, "image", imgURI(gs(f, "image", "")).c_str());
         cJSON_AddBoolToObject(fo, "favorite", gb(f, "favorite", gb(f, "fav")));
         cJSON_AddBoolToObject(fo, "online", on);
         cJSON_AddBoolToObject(fo, "inGame", ig);
@@ -457,6 +484,7 @@ cJSON* friends(long* st) {
         cJSON* ro = cJSON_CreateObject();
         cJSON_AddStringToObject(ro, "name", gs(r, "name", gs(r, "username", "-")));
         cJSON_AddStringToObject(ro, "code", gs(r, "friend_code", gs(r, "code", "")));
+        cJSON_AddStringToObject(ro, "image", imgURI(gs(r, "image", "")).c_str());
         cJSON_AddNumberToObject(ro, "pid", gi(r, "pid", gi(r, "id")));
         cJSON_AddItemToArray(rarr, ro);
     }

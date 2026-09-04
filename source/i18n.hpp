@@ -13,16 +13,24 @@ inline const std::string& lang() { return langRef(); }
 
 inline const char* T(const char* k) {
     static const std::map<std::string, std::map<std::string, const char*>> M = {
-      { "tab_online",  {{"en","In game now"},{"fr","En jeu"},{"es","En juego"}} },
-      { "tab_status",  {{"en","Server status"},{"fr","État"},{"es","Estado"}} },
+      // Taskbar labels — short, matching the exe's taskbar exactly (its
+      // longer in-tab <h1> titles are separate keys below).
+      { "tab_online",  {{"en","Online"},{"fr","En ligne"},{"es","En línea"}} },
+      { "tab_status",  {{"en","Status"},{"fr","État"},{"es","Estado"}} },
       { "tab_friends", {{"en","Friends"},{"fr","Amis"},{"es","Amigos"}} },
+      { "tab_profile", {{"en","Profile"},{"fr","Profil"},{"es","Perfil"}} },
       { "tab_settings",{{"en","Settings"},{"fr","Réglages"},{"es","Ajustes"}} },
+      { "online_heading",{{"en","In game right now"},{"fr","En jeu maintenant"},{"es","En juego ahora"}} },
+      { "status_heading",{{"en","Server status"},{"fr","État des serveurs"},{"es","Estado de los servidores"}} },
+      { "connecting",{{"en","connecting…"},{"fr","connexion…"},{"es","conectando…"}} },
+      { "offline",   {{"en","offline"},{"fr","hors ligne"},{"es","sin conexión"}} },
       { "players_ingame",{{"en","players in game"},{"fr","joueurs en jeu"},{"es","jugadores en juego"}} },
       { "games_active",{{"en","games active"},{"fr","jeux actifs"},{"es","juegos activos"}} },
       { "player",  {{"en","player"},{"fr","joueur"},{"es","jugador"}} },
       { "players", {{"en","players"},{"fr","joueurs"},{"es","jugadores"}} },
       { "all_ok",  {{"en","All systems operational"},{"fr","Tous les services opérationnels"},{"es","Todos los servicios operativos"}} },
-      { "services_down",{{"en","service(s) down"},{"fr","service(s) en panne"},{"es","servicio(s) caído(s)"}} },
+      { "down_one",{{"en","service down"},{"fr","service en panne"},{"es","servicio caído"}} },
+      { "down_many",{{"en","services down"},{"fr","services en panne"},{"es","servicios caídos"}} },
       { "up_of",   {{"en","up"},{"fr","opérationnels"},{"es","operativos"}} },
       { "st_up",   {{"en","operational"},{"fr","opérationnel"},{"es","operativo"}} },
       { "st_down", {{"en","down"},{"fr","hors service"},{"es","caído"}} },

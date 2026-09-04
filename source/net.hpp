@@ -26,6 +26,7 @@ const char* gs(cJSON* o, const char* k, const char* d = "");
 int         gi(cJSON* o, const char* k, int d = 0);
 bool        gb(cJSON* o, const char* k, bool d = false);
 std::string b64(const unsigned char* data, size_t n);
+bool        imageBytesFromDataUri(const std::string& uri, std::string& out); // "data:image/...;base64,X" -> raw bytes
 
 // ---------------------------------------------------------------- multi-account token store
 // sdmc:/switch/nextendo-hub/config.json : { current, theme, lang, credit{fc}, accounts:{id:{token,username}} }

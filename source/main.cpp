@@ -8,11 +8,13 @@
 #include <borealis.hpp>
 #include <string>
 #include <vector>
+#include <algorithm>
 #include <pthread.h>
 #include <atomic>
 #include <mutex>
 #include <chrono>
 #include <cctype>
+#include <ctime>
 #include <switch.h>
 #include "net.hpp"
 #include "i18n.hpp"
@@ -28,36 +30,95 @@ static const char* APP_NAME = "Nextendo Hub";
 // ================================================================ theme
 // borealis's default look is Nintendo's own system blue (HorizonLightTheme /
 // HorizonDarkTheme, see theme.cpp) — not this app's branding. Subclass both
-// and override just the accent-bearing fields to the Nextendo brand blue
-// (#1ca9e0, the same colour as SWATCHES[0] below and the desktop app's
-// primary accent), keeping every other native Switch UI colour (background,
-// text, separators, sidebar...) exactly as borealis draws it.
-static NVGcolor ACCENT() { return nvgRGB(0x1c, 0xa9, 0xe0); }
+// and override the accent-bearing fields AND the base ground colour to the
+// *actual* desktop app's values, read straight out of renderer/index.html's
+// CSS :root / :root[data-theme="dark"] blocks:
+//   --accent:#d6197d / #ff3ea5     --ground:#f4f0fa / #0e0a15
+// Every other native Switch UI colour (text, separators, sidebar...) stays
+// exactly as borealis draws it.
+static NVGcolor ACCENT_LIGHT() { return nvgRGB(0xd6, 0x19, 0x7d); }
+static NVGcolor ACCENT_DARK()  { return nvgRGB(0xff, 0x3e, 0xa5); }
 
 class NextendoLightTheme : public brls::HorizonLightTheme {
 public:
     NextendoLightTheme() : brls::HorizonLightTheme() {
-        activeTabColor                      = ACCENT();
-        highlightColor1                     = ACCENT();
-        listItemValueColor                  = ACCENT();
-        headerRectangleColor                = ACCENT();
-        buttonPrimaryEnabledBackgroundColor = ACCENT();
-        dialogButtonColor                   = ACCENT();
+        NVGcolor a = ACCENT_LIGHT();
+        activeTabColor                      = a;
+        highlightColor1                     = a;
+        listItemValueColor                  = a;
+        headerRectangleColor                = a;
+        buttonPrimaryEnabledBackgroundColor = a;
+        dialogButtonColor                   = a;
+        backgroundColor[0] = 0xf4 / 255.0f; backgroundColor[1] = 0xf0 / 255.0f; backgroundColor[2] = 0xfa / 255.0f;
+        backgroundColorRGB = nvgRGB(0xf4, 0xf0, 0xfa);
     }
 };
 class NextendoDarkTheme : public brls::HorizonDarkTheme {
 public:
     NextendoDarkTheme() : brls::HorizonDarkTheme() {
-        activeTabColor                      = ACCENT();
-        highlightColor1                     = ACCENT();
-        listItemValueColor                  = ACCENT();
-        headerRectangleColor                = ACCENT();
-        buttonPrimaryEnabledBackgroundColor = ACCENT();
-        dialogButtonColor                   = ACCENT();
+        NVGcolor a = ACCENT_DARK();
+        activeTabColor                      = a;
+        highlightColor1                     = a;
+        listItemValueColor                  = a;
+        headerRectangleColor                = a;
+        buttonPrimaryEnabledBackgroundColor = a;
+        dialogButtonColor                   = a;
+        backgroundColor[0] = 0x0e / 255.0f; backgroundColor[1] = 0x0a / 255.0f; backgroundColor[2] = 0x15 / 255.0f;
+        backgroundColorRGB = nvgRGB(0x0e, 0x0a, 0x15);
+    }
+};
+
+// The exe's body background is two soft radial glows (--grad-a pink /
+// --grad-b purple, at low opacity — --wash) near the top-left/top-right
+// corners, over the flat --ground colour above. borealis's Theme struct is
+// flat-colour only, but it draws through NanoVG underneath, which does
+// support radial gradients (nvgRadialGradient) — paint them directly as a
+// custom Background, drawn once per frame right after the flat clear
+// (Application::frame() clears to theme->backgroundColorRGB, *then* calls
+// Background::frame(), confirmed by reading application.cpp).
+class NextendoBackground : public brls::Background {
+public:
+    void preFrame() override {}
+    void postFrame() override {}
+    void draw(NVGcontext* vg, int x, int y, unsigned width, unsigned height, brls::Style* style, brls::FrameContext* ctx) override {
+        bool dark = brls::Application::getThemeVariant() == brls::ThemeVariant::DARK;
+        unsigned char washA = dark ? 56 : 36; // --wash: .22 / .14 of 255
+
+        auto blob = [&](float cxFrac, float cyFrac, float rw, float rh, NVGcolor inner) {
+            float cx = x + (float)width * cxFrac;
+            float cy = y + (float)height * cyFrac;
+            nvgSave(vg);
+            nvgTranslate(vg, cx, cy);
+            nvgScale(vg, 1.0f, rh / rw); // circle -> ellipse (rw half-width, rh half-height)
+            NVGpaint p = nvgRadialGradient(vg, 0, 0, 0, rw, inner, nvgRGBA(0, 0, 0, 0));
+            nvgBeginPath(vg);
+            nvgRect(vg, -rw * 2, -rw * 2, rw * 4, rw * 4);
+            nvgFillPaint(vg, p);
+            nvgFill(vg);
+            nvgRestore(vg);
+        };
+        // matches "radial-gradient(700px 440px at 6% -10%, ...)" and
+        // "(760px 560px at 114% 8%, ...)" from index.html, in fractions of
+        // this frame's own size so it holds up at any resolution.
+        blob(0.06f, -0.10f, (float)width * 0.42f, (float)height * 0.55f, nvgRGBA(0xff, 0x2e, 0x97, washA));
+        blob(1.14f,  0.08f, (float)width * 0.46f, (float)height * 0.70f, nvgRGBA(0x7b, 0x2f, 0xf7, washA));
     }
 };
 
 // ================================================================ small helpers
+// Matches the exe's fmtCode(): strip everything but alnum, drop a leading
+// "SW", and if what's left is exactly 12 digits, group it as
+// SW-XXXX-XXXX-XXXX. Anything else (a code that isn't 12 digits) is
+// returned unchanged, same as the exe.
+static std::string fmtCode(const std::string& c) {
+    if (c.empty()) return c;
+    std::string raw;
+    for (char ch : c) if (std::isalnum((unsigned char)ch)) raw += (char)std::toupper((unsigned char)ch);
+    std::string digits = (raw.rfind("SW", 0) == 0) ? raw.substr(2) : raw;
+    if (digits.size() == 12 && digits.find_first_not_of("0123456789") == std::string::npos)
+        return "SW-" + digits.substr(0, 4) + "-" + digits.substr(4, 4) + "-" + digits.substr(8, 4);
+    return c;
+}
 static brls::ListItem* row(const std::string& label, const std::string& value = "") {
     auto* it = new brls::ListItem(label);
     if (!value.empty()) it->setValue(value);
@@ -93,10 +154,15 @@ static void askText(const std::string& header, std::function<void(std::string)> 
 // ================================================================ LiveList
 // A borealis List that re-fetches on an interval on a worker thread and rebuilds
 // itself on the UI thread. Used for the two polling feeds (Status / Online).
+// The exe keeps the last successfully-fetched data on screen (with a small
+// "offline · HH:MM" tag) when a poll fails, rather than blanking to an error
+// — see renderStatus/renderOnline in the desktop app's renderer/app.js
+// (statusStale/onlineStale). LiveList now mirrors that: `lastGood` persists
+// across failed fetches, `stale` says whether the *current* row is fresh.
 class LiveList : public brls::List {
 public:
     using Fetch  = std::function<cJSON*(long*)>;
-    using Render = std::function<void(brls::List*, cJSON*, long)>;
+    using Render = std::function<void(brls::List*, cJSON*, long, bool, time_t)>;
 
     LiveList(Fetch f, Render r, int intervalMs)
         : fetch(std::move(f)), render(std::move(r)), interval(intervalMs) {
@@ -105,19 +171,45 @@ public:
         // started yet at construction time, so add a placeholder row now;
         // frame() replaces it with real content once data arrives.
         this->addView(new brls::ListItem(T("loading")));
+        registry().push_back(this);
         kick();
         this->registerAction(T("refresh_hint"), brls::Key::X, [this]() { kick(); return true; });
     }
-    ~LiveList() override { alive = false; if (started) { pthread_join(worker, nullptr); started = false; } }
+    ~LiveList() override {
+        alive = false;
+        if (started) { pthread_join(worker, nullptr); started = false; }
+        if (lastGood) cJSON_Delete(lastGood);
+        auto& r = registry();
+        r.erase(std::remove(r.begin(), r.end(), this), r.end());
+    }
+
+    // Both LiveLists are heap-allocated in main() and never explicitly
+    // deleted before the app exits (they live for the process's whole
+    // lifetime) — so on exit their worker threads can still be mid-fetch,
+    // actively using libcurl/sockets, at the exact moment main() runs
+    // net::shutdown() (curl_global_cleanup()/socketExit()) right after the
+    // main loop ends. That's a live use of a resource that's being torn
+    // down from another thread — a real, reproducible crash-on-close, not
+    // a hang: worst case this blocks briefly (curl's own 25s timeout caps
+    // it) until the in-flight fetch actually finishes.
+    static void joinAllBeforeShutdown() {
+        for (LiveList* l : registry()) if (l->started) { pthread_join(l->worker, nullptr); l->started = false; }
+    }
 
     void frame(brls::FrameContext* ctx) override {
         if (ready.exchange(false)) {
-            this->clear();
-            cJSON* d;
-            long st;
+            cJSON* d; long st;
             { std::lock_guard<std::mutex> lk(mtx); d = data; data = nullptr; st = status; }
-            render(this, d, st);
-            if (d) cJSON_Delete(d);
+            if (d) {
+                if (lastGood) cJSON_Delete(lastGood);
+                lastGood = d;
+                lastGoodAt = time(nullptr);
+                stale = false;
+            } else {
+                stale = true; // keep serving lastGood, just flagged as stale
+            }
+            this->clear();
+            render(this, lastGood, st, stale, lastGoodAt);
             // borealis's View::~View() clears Application's global focus if the
             // view being destroyed was the focused one (see application.cpp).
             // clear() just destroyed whatever was focused (the placeholder on
@@ -139,6 +231,8 @@ public:
     }
 
 private:
+    static std::vector<LiveList*>& registry() { static std::vector<LiveList*> v; return v; }
+
     // std::thread's default stack on Switch is too small for libcurl doing a
     // TLS handshake through mbedTLS — it reliably stack-overflows and crashes
     // the whole process. Use pthread directly so we can size the stack.
@@ -169,14 +263,39 @@ private:
     pthread_t worker{};
     bool started = false;
     std::mutex mtx;
-    cJSON* data = nullptr;
+    cJSON* data = nullptr;      // raw result from the worker, pending pickup
     long status = 0;
+    cJSON* lastGood = nullptr;  // last successfully-fetched payload (retained across failures)
+    time_t lastGoodAt = 0;      // 0 == never had a successful fetch yet
+    bool stale = false;
     std::atomic<bool> busy{false}, ready{false}, alive{true};
     std::chrono::steady_clock::time_point last = std::chrono::steady_clock::time_point::min();
 };
 
+static std::string fmtHM(time_t t) {
+    if (!t) return "";
+    struct tm tmv; localtime_r(&t, &tmv);
+    char b[8]; snprintf(b, sizeof(b), "%02d:%02d", tmv.tm_hour, tmv.tm_min);
+    return b;
+}
+// "live · 14:32" / "offline · 14:30" / "connecting…" — same freshness tag
+// the exe shows next to each tab's heading (setTag() in app.js).
+static std::string freshnessTag(bool haveData, bool stale, time_t at) {
+    if (!haveData) return T("connecting");
+    return std::string(T(stale ? "offline" : "live")) + " · " + fmtHM(at);
+}
+
 // ================================================================ renderers
-static void renderOnline(brls::List* l, cJSON* d, long st) {
+// Both match the exe's per-tab layout: a heading row with a live/offline
+// freshness tag on the right (its <h1> + <span class="tag">), matching text
+// exactly (online_heading/status_heading = its "In game right now" /
+// "Server status" <h1>s — the taskbar's own short "Online"/"Status" labels
+// are separate, see i18n.hpp).
+static void renderOnline(brls::List* l, cJSON* d, long st, bool stale, time_t at) {
+    auto* head = new brls::ListItem(T("online_heading"));
+    head->setValue(freshnessTag(d != nullptr, stale, at));
+    l->addView(head);
+
     if (!d) { note(l, st ? (std::string(T("unreachable")) + " (HTTP " + std::to_string(st) + ")") : T("unreachable")); return; }
     int total = gi(d, "total");
     cJSON* jeux = cJSON_GetObjectItem(d, "jeux");
@@ -193,10 +312,14 @@ static void renderOnline(brls::List* l, cJSON* d, long st) {
     if (!active) note(l, T("no_data"));
 }
 
-static void renderStatus(brls::List* l, cJSON* d, long st) {
+static void renderStatus(brls::List* l, cJSON* d, long st, bool stale, time_t at) {
+    auto* head = new brls::ListItem(T("status_heading"));
+    head->setValue(freshnessTag(d != nullptr, stale, at));
+    l->addView(head);
+
     if (!d) { note(l, T("unreachable")); return; }
     int up = gi(d, "up"), down = gi(d, "down"), total = gi(d, "total");
-    l->addView(new brls::Header(down ? (std::to_string(down) + " " + T("services_down")) : T("all_ok")));
+    l->addView(new brls::Header(down ? (std::to_string(down) + " " + T(down == 1 ? "down_one" : "down_many")) : T("all_ok")));
     note(l, std::to_string(up) + " / " + std::to_string(total) + " " + T("up_of"));
     cJSON* g;
     cJSON_ArrayForEach(g, cJSON_GetObjectItem(d, "groups")) {
@@ -216,18 +339,25 @@ static void renderStatus(brls::List* l, cJSON* d, long st) {
 }
 
 // ================================================================ FRIENDS tab
-static void buildFriends(brls::List* l);   // fwd (defined after buildFriendsImpl below)
+static void buildFriends(brls::List* l);          // fwd (defined after buildFriendsImpl below)
+static void buildAvatarGallery(brls::List* l);     // fwd (defined in the Settings section below)
 
+// Each swkbd screen only ever shows one bare field name ("Email address",
+// then later "Password") with nothing tying them together as steps of the
+// same sign-in — prefix every prompt with which flow it's part of ("Sign
+// in — Email address", "Sign in — Password", ...) so it reads as a
+// sequence instead of a string of unrelated questions.
 static void doLoginFlow(brls::List* l, bool registerMode) {
-    askText(T("email"), [l, registerMode](std::string email) {
+    std::string mode = T(registerMode ? "create_account" : "sign_in");
+    askText(mode + " — " + T("email"), [l, registerMode, mode](std::string email) {
         if (email.empty()) return;
-        askText(T("password"), [l, registerMode, email](std::string pw) {
+        askText(mode + " — " + T("password"), [l, registerMode, email, mode](std::string pw) {
             if (pw.empty()) return;
             if (registerMode) {
                 if (!passwordOk(pw)) { brls::Application::notify(T("failed")); return; }
-                askText(T("password_again"), [l, email, pw](std::string pw2) {
+                askText(mode + " — " + T("password_again"), [l, email, pw, mode](std::string pw2) {
                     if (pw2 != pw) { brls::Application::notify("passwords differ"); return; }
-                    askText(T("username"), [l, email, pw](std::string u) {
+                    askText(mode + " — " + T("username"), [l, email, pw](std::string u) {
                         if (!usernameError(u).empty()) { brls::Application::notify(usernameError(u)); return; }
                         net::AuthResult r = net::reg(u, email, pw, "");
                         brls::Application::notify(r.ok ? T("saved") : r.error);
@@ -263,6 +393,23 @@ static void buildFriendsImpl(brls::List* l) {
         return;
     }
 
+    // Fetched once, up front, and reused for both the identity block below
+    // and the friends list further down (the exe's own /api/friends
+    // response already carries `me`, exactly for this reason).
+    long st = 0;
+    cJSON* d = net::friends(&st);
+    bool sessionDead = (st == 401 || !net::signedIn());
+    cJSON* me = (d && !sessionDead) ? cJSON_GetObjectItem(d, "me") : nullptr;
+
+    // identity — the exe's prominent .id block: photo, name, friend code.
+    if (me) {
+        auto* id = new brls::ListItem(gs(me, "username", "?"), fmtCode(gs(me, "code", "")));
+        std::string bytes;
+        if (net::imageBytesFromDataUri(gs(me, "avatar", ""), bytes))
+            id->setThumbnail((unsigned char*)bytes.data(), bytes.size());
+        l->addView(id);
+    }
+
     // account switcher
     auto accs = net::accounts();
     l->addView(new brls::Header(T("account")));
@@ -285,6 +432,27 @@ static void buildFriendsImpl(brls::List* l) {
     out->getClickEvent()->subscribe([l](brls::View*) { net::logout(); buildFriends(l); });
     l->addView(out);
 
+    // Editing the picture/username lives fully in Settings too (matching the
+    // exe's own layout — its Profile-tab identity header isn't editable
+    // either, only Settings' #acct section is), but this tab is now literally
+    // labelled "Profile", so a direct shortcut to both belongs right here.
+    auto* chpic = row(T("choose_avatar"));
+    chpic->getClickEvent()->subscribe([l](brls::View*) { buildAvatarGallery(l); });
+    l->addView(chpic);
+    auto* chname = row(T("username"));
+    chname->getClickEvent()->subscribe([l](brls::View*) {
+        askText(T("username"), [l](std::string u) {
+            std::string err = usernameError(u);
+            if (!err.empty()) { brls::Application::notify(err); return; }
+            if (!net::usernameAvailable(u)) { brls::Application::notify(T("taken")); return; }
+            std::string e;
+            bool ok = net::usernameSet(u, e);
+            brls::Application::notify(ok ? T("saved") : e);
+            if (ok) buildFriends(l);
+        });
+    });
+    l->addView(chname);
+
     // add friend by code
     auto* af = row(T("add_friend"));
     af->getClickEvent()->subscribe([l](brls::View*) {
@@ -298,9 +466,12 @@ static void buildFriendsImpl(brls::List* l) {
     });
     l->addView(af);
 
-    long st = 0;
-    cJSON* d = net::friends(&st);
-    if (st == 401 || !net::signedIn()) { note(l, T("session_expired")); if (d) cJSON_Delete(d); return; }
+    // The friends list is the only part that depends on this fetch having
+    // worked — sign out / switch / add-account / edit-profile must all stay
+    // usable even when it didn't (this used to bail out of the whole
+    // function here, silently hiding the sign-out button behind a dead
+    // session with no way back except restarting the app).
+    if (sessionDead) { note(l, T("session_expired")); if (d) cJSON_Delete(d); return; }
     if (!d) { note(l, std::string(T("unreachable")) + " (HTTP " + std::to_string(st) + ")"); return; }
 
     cJSON* cnt = cJSON_GetObjectItem(d, "counts");
@@ -314,7 +485,11 @@ static void buildFriendsImpl(brls::List* l) {
         cJSON* r;
         cJSON_ArrayForEach(r, reqs) {
             int pid = gi(r, "pid");
-            auto* it = row(gs(r, "name"), std::string(T("wants_to_add")));
+            std::string rcode = fmtCode(gs(r, "code", ""));
+            auto* it = new brls::ListItem(gs(r, "name"), std::string(T("wants_to_add")) + (rcode.empty() ? "" : "  ·  " + rcode));
+            std::string rbytes;
+            if (net::imageBytesFromDataUri(gs(r, "image", ""), rbytes))
+                it->setThumbnail((unsigned char*)rbytes.data(), rbytes.size());
             it->getClickEvent()->subscribe([l, pid](brls::View*) {
                 auto* dlg = new brls::Dialog(T("friend_requests"));
                 dlg->addButton(T("accept"),  [l, pid](brls::View*) { net::friendAccept(pid);  buildFriends(l); });
@@ -333,7 +508,17 @@ static void buildFriendsImpl(brls::List* l) {
             : gb(f, "online") ? T("online_word") : T("offline_word");
         std::string name = gs(f, "name");
         if (gb(f, "favorite")) name += "  ★";
-        l->addView(row(name, state));
+        // Matches the exe's frow layout: name (+star) on top, status below as
+        // a description, formatted friend code on the right as the value,
+        // and their actual avatar as the row's thumbnail — the exe shows
+        // all four, this port previously showed only name/status.
+        auto* fi = new brls::ListItem(name, state);
+        std::string fcode = fmtCode(gs(f, "code", ""));
+        if (!fcode.empty()) fi->setValue(fcode);
+        std::string fbytes;
+        if (net::imageBytesFromDataUri(gs(f, "image", ""), fbytes))
+            fi->setThumbnail((unsigned char*)fbytes.data(), fbytes.size());
+        l->addView(fi);
     }
     if (gi(cnt, "total") == 0) note(l, T("no_friends"));
     cJSON_Delete(d);
@@ -446,9 +631,17 @@ static void buildSettings(brls::List* l) {
         });
         l->addView(un);
 
-        // country
+        // country — the exe shows the flag as an <img> from flagcdn.com;
+        // fetch and show it as this row's thumbnail the same way.
         std::string curC = p ? gs(p, "country", "") : "";
         auto* cn = row(T("country"), curC.empty() ? "--" : curC);
+        if (curC.size() == 2 && std::isalpha((unsigned char)curC[0]) && std::isalpha((unsigned char)curC[1])) {
+            std::string lc = curC;
+            for (auto& c : lc) c = (char)std::tolower((unsigned char)c);
+            net::Resp fr = net::raw("GET", "https://flagcdn.com/w40/" + lc + ".png", "", "");
+            if (fr.status == 200 && !fr.body.empty())
+                cn->setThumbnail((unsigned char*)fr.body.data(), fr.body.size());
+        }
         cn->getClickEvent()->subscribe([l](brls::View*) {
             auto codes = net::countryList();
             if (codes.empty()) { brls::Application::notify(T("failed")); return; }
@@ -541,14 +734,14 @@ static void buildSettings(brls::List* l) {
 
         if (p) cJSON_Delete(p);
     } else {
-        note(l, T("not_signed_in") + std::string("  (") + T("tab_friends") + ")");
+        note(l, T("not_signed_in") + std::string("  (") + T("tab_profile") + ")");
     }
 
     // ---- credit ----
     l->addView(new brls::Header(T("about")));
     note(l, "NextendoHub - unofficial client for nextendo.network.");
     l->addView(row(T("made_by"), "adxmm"));
-    l->addView(row(T("friend_code"), net::getPref("credit_fc", "SW-????-????-????")));
+    l->addView(row(T("friend_code"), fmtCode(net::getPref("credit_fc", "SW-????-????-????"))));
     l->addView(row("Discord", "diavolo.__"));
     l->addView(row(T("founders"), "JuanBrew  ·  Kazu"));
     l->addView(row(T("version"), "1.0.0"));
@@ -599,6 +792,20 @@ int main(int argc, char* argv[]) {
     brls::Logger::setLogLevel(brls::LogLevel::INFO);
     auto* themeVariants = new brls::LibraryViewsThemeVariantsWrapper(new NextendoLightTheme(), new NextendoDarkTheme());
     if (!brls::Application::init(APP_NAME, nullptr, themeVariants)) { romfsExit(); setsysExit(); plExit(); return EXIT_FAILURE; }
+    brls::Application::setBackground(new NextendoBackground());
+    // borealis's OWN i18n system (brls::i18n — distinct from this app's own
+    // i18n::T() above) is what supplies the text for its built-in hints: the
+    // "B ⟶ Back" / "A ⟶ OK" strings registered internally by
+    // AppletFrame/Dialog/Dropdown/List (applet_frame.cpp, dialog.cpp,
+    // dropdown.cpp, list.cpp all do `registerAction("brls/hints/back"_i18n,
+    // ...)` etc). Its header is explicit: "Must be called before trying to
+    // get a translation!" — brls::i18n::loadTranslations() was never called
+    // anywhere in this app (same class of bug as the missing plInitialize()
+    // earlier), so every one of those lookups silently falls back to
+    // returning the raw, untranslated string key itself
+    // ("brls/hints/back") instead of "Back" — exactly the raw/garbled hint
+    // text reported at the bottom of the screen.
+    brls::i18n::loadTranslations();
     net::init();
     i18n::loadLang();
     applyTheme(net::getPref("theme", "system"));
@@ -607,13 +814,16 @@ int main(int argc, char* argv[]) {
     root->setTitle(APP_NAME);
     root->setIcon("romfs:/icon.jpg");
 
-    root->addTab(T("tab_online"),  new LiveList(net::onlineCounts, renderOnline, 15000));
-    root->addTab(T("tab_status"),  new LiveList(net::serverStatus, renderStatus, 60000));
-
+    // Tab order and default (first-added = shown on launch) match the exe's
+    // taskbar exactly: Profile, Online, Status, Settings — see
+    // renderer/index.html's <nav class="taskbar"> and app.js's S.tab default.
     auto* friends = new brls::List();
     buildFriends(friends);
     friends->registerAction(T("refresh_hint"), brls::Key::X, [friends]() { buildFriends(friends); return true; });
-    root->addTab(T("tab_friends"), friends);
+    root->addTab(T("tab_profile"), friends);
+
+    root->addTab(T("tab_online"), new LiveList(net::onlineCounts, renderOnline, 15000));
+    root->addTab(T("tab_status"), new LiveList(net::serverStatus, renderStatus, 60000));
 
     root->addSeparator();
 
@@ -625,6 +835,11 @@ int main(int argc, char* argv[]) {
     brls::Application::pushView(root);
     while (brls::Application::mainLoop());
 
+    // See LiveList::joinAllBeforeShutdown()'s comment: without this, a
+    // still-running background fetch can be using libcurl/sockets at the
+    // exact moment net::shutdown() tears them down underneath it — a real
+    // crash on close, not just a slow one.
+    LiveList::joinAllBeforeShutdown();
     net::shutdown();
     romfsExit();
     setsysExit();
