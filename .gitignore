@@ -1,5 +1,6 @@
 build/
 lib/borealis/
+romfs/shaders/
 NextendoHub.nro
 NextendoHub.elf
 NextendoHub.nacp

@@ -56,6 +56,13 @@ jobs:
           chmod +x setup.sh
           ./setup.sh
 
+      # `uam` (deko3d's shader compiler) is what turns borealis's .glsl
+      # shaders into the .dksh files it needs in romfs at runtime. It should
+      # already be on PATH in this image; fall back to installing it
+      # explicitly (switch-tools) if a future image slims it out.
+      - name: Ensure uam (deko3d shader compiler) is available
+        run: command -v uam || dkp-pacman -S --noconfirm --needed switch-tools
+
       - name: Build NextendoHub.nro
         run: make -j$(nproc)
 
