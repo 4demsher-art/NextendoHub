@@ -165,8 +165,8 @@ static void note(brls::List* l, const std::string& text) {
     l->addView(new brls::ListItem(text));
 }
 static std::string usernameError(const std::string& u) {           // "" == ok
-    if (u.size() < 3 || u.size() > 16) return "3-16 characters";
-    for (char c : u) if (!(std::isalnum((unsigned char)c) || c == '_' || c == '-')) return "letters, digits, _ or -";
+    if (u.size() < 3 || u.size() > 16) return T("uname_len_rule");
+    for (char c : u) if (!(std::isalnum((unsigned char)c) || c == '_' || c == '-')) return T("uname_char_rule");
     return "";
 }
 static bool passwordOk(const std::string& p) {
@@ -385,7 +385,7 @@ static void doLoginFlow(brls::List* l, bool registerMode) {
             if (registerMode) {
                 if (!passwordOk(pw)) { brls::Application::notify(T("failed")); return; }
                 askText(mode + " — " + T("password_again"), [l, email, pw, mode](std::string pw2) {
-                    if (pw2 != pw) { brls::Application::notify("passwords differ"); return; }
+                    if (pw2 != pw) { brls::Application::notify(T("pw_mismatch")); return; }
                     askText(mode + " — " + T("username"), [l, email, pw](std::string u) {
                         if (!usernameError(u).empty()) { brls::Application::notify(usernameError(u)); return; }
                         net::AuthResult r = net::reg(u, email, pw, "");
@@ -431,12 +431,17 @@ static void buildFriendsImpl(brls::List* l) {
     cJSON* me = (d && !sessionDead) ? cJSON_GetObjectItem(d, "me") : nullptr;
 
     // identity — the exe's prominent .id block: photo, name, friend code.
+    // setThumbnail() must run *after* addView(): ListItem::layout() positions
+    // the thumbnail using this->x/this->y, which are only correct once the
+    // parent BoxLayout has actually placed this row — call it any earlier
+    // and the thumbnail gets pinned to wherever this item's stale (0,0-ish,
+    // pre-layout) coordinates happened to be, not where the row ends up.
     if (me) {
         auto* id = new brls::ListItem(gs(me, "username", "?"), fmtCode(gs(me, "code", "")));
+        l->addView(id);
         std::string bytes;
         if (net::imageBytesFromDataUri(gs(me, "avatar", ""), bytes))
             id->setThumbnail((unsigned char*)bytes.data(), bytes.size());
-        l->addView(id);
     }
 
     // account switcher
@@ -516,9 +521,6 @@ static void buildFriendsImpl(brls::List* l) {
             int pid = gi(r, "pid");
             std::string rcode = fmtCode(gs(r, "code", ""));
             auto* it = new brls::ListItem(gs(r, "name"), std::string(T("wants_to_add")) + (rcode.empty() ? "" : "  ·  " + rcode));
-            std::string rbytes;
-            if (net::imageBytesFromDataUri(gs(r, "image", ""), rbytes))
-                it->setThumbnail((unsigned char*)rbytes.data(), rbytes.size());
             it->getClickEvent()->subscribe([l, pid](brls::View*) {
                 auto* dlg = new brls::Dialog(T("friend_requests"));
                 dlg->addButton(T("accept"),  [l, pid](brls::View*) { net::friendAccept(pid);  buildFriends(l); });
@@ -526,6 +528,10 @@ static void buildFriendsImpl(brls::List* l) {
                 dlg->open();
             });
             l->addView(it);
+            // must come after addView() — see the identity block's comment above.
+            std::string rbytes;
+            if (net::imageBytesFromDataUri(gs(r, "image", ""), rbytes))
+                it->setThumbnail((unsigned char*)rbytes.data(), rbytes.size());
         }
     }
 
@@ -544,10 +550,11 @@ static void buildFriendsImpl(brls::List* l) {
         auto* fi = new brls::ListItem(name, state);
         std::string fcode = fmtCode(gs(f, "code", ""));
         if (!fcode.empty()) fi->setValue(fcode);
+        l->addView(fi);
+        // must come after addView() — see the identity block's comment above.
         std::string fbytes;
         if (net::imageBytesFromDataUri(gs(f, "image", ""), fbytes))
             fi->setThumbnail((unsigned char*)fbytes.data(), fbytes.size());
-        l->addView(fi);
     }
     if (gi(cnt, "total") == 0) note(l, T("no_friends"));
     cJSON_Delete(d);
@@ -629,7 +636,7 @@ static void buildSettings(brls::List* l) {
         brls::Dropdown::open(T("language"), { "English", "Français", "Español" }, [l](int i) {
             i18n::setLang(i == 1 ? "fr" : i == 2 ? "es" : "en");
             buildSettings(l);
-            brls::Application::notify("Reopen tabs to fully re-translate");
+            brls::Application::notify(T("retranslate_hint"));
         }, i18n::lang() == "fr" ? 1 : i18n::lang() == "es" ? 2 : 0);
     });
     l->addView(lang);
@@ -664,13 +671,6 @@ static void buildSettings(brls::List* l) {
         // fetch and show it as this row's thumbnail the same way.
         std::string curC = p ? gs(p, "country", "") : "";
         auto* cn = row(T("country"), curC.empty() ? "--" : curC);
-        if (curC.size() == 2 && std::isalpha((unsigned char)curC[0]) && std::isalpha((unsigned char)curC[1])) {
-            std::string lc = curC;
-            for (auto& c : lc) c = (char)std::tolower((unsigned char)c);
-            net::Resp fr = net::raw("GET", "https://flagcdn.com/w40/" + lc + ".png", "", "");
-            if (fr.status == 200 && !fr.body.empty())
-                cn->setThumbnail((unsigned char*)fr.body.data(), fr.body.size());
-        }
         cn->getClickEvent()->subscribe([l](brls::View*) {
             auto codes = net::countryList();
             if (codes.empty()) { brls::Application::notify(T("failed")); return; }
@@ -687,6 +687,20 @@ static void buildSettings(brls::List* l) {
             }, sel);
         });
         l->addView(cn);
+        // must come after addView() — see the identity block's comment above:
+        // ListItem::layout() positions the thumbnail from this->x/this->y,
+        // which are only correct once the parent has actually placed this
+        // row. Calling setThumbnail() earlier pinned the flag to wherever
+        // this row's pre-layout (~0,0) coordinates happened to be — nowhere
+        // near "Country", which is exactly the floating/detached flag from
+        // the screenshot.
+        if (curC.size() == 2 && std::isalpha((unsigned char)curC[0]) && std::isalpha((unsigned char)curC[1])) {
+            std::string lc = curC;
+            for (auto& c : lc) c = (char)std::tolower((unsigned char)c);
+            net::Resp fr = net::raw("GET", "https://flagcdn.com/w40/" + lc + ".png", "", "");
+            if (fr.status == 200 && !fr.body.empty())
+                cn->setThumbnail((unsigned char*)fr.body.data(), fr.body.size());
+        }
 
         // profile picture — gallery
         auto* pic = row(T("choose_avatar"));
@@ -768,7 +782,7 @@ static void buildSettings(brls::List* l) {
 
     // ---- credit ----
     l->addView(new brls::Header(T("about")));
-    note(l, "NextendoHub - unofficial client for nextendo.network.");
+    note(l, T("about_line"));
     l->addView(row(T("made_by"), "adxmm"));
     l->addView(row(T("friend_code"), fmtCode(net::getPref("credit_fc", "SW-????-????-????"))));
     l->addView(row("Discord", "diavolo.__"));
