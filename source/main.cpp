@@ -8,11 +8,12 @@
 #include <borealis.hpp>
 #include <string>
 #include <vector>
-#include <thread>
+#include <pthread.h>
 #include <atomic>
 #include <mutex>
 #include <chrono>
 #include <cctype>
+#include <switch.h>
 #include "net.hpp"
 #include "i18n.hpp"
 #include "cJSON.h"
@@ -62,7 +63,7 @@ public:
         kick();
         this->registerAction(T("refresh_hint"), brls::Key::X, [this]() { kick(); return true; });
     }
-    ~LiveList() override { alive = false; if (worker.joinable()) worker.join(); }
+    ~LiveList() override { alive = false; if (started) { pthread_join(worker, nullptr); started = false; } }
 
     void frame(brls::FrameContext* ctx) override {
         if (ready.exchange(false)) {
@@ -80,20 +81,35 @@ public:
     }
 
 private:
+    // std::thread's default stack on Switch is too small for libcurl doing a
+    // TLS handshake through mbedTLS — it reliably stack-overflows and crashes
+    // the whole process. Use pthread directly so we can size the stack.
+    static constexpr size_t kWorkerStackSize = 256 * 1024;
+
+    static void* threadMain(void* arg) {
+        auto* self = static_cast<LiveList*>(arg);
+        long st = 0;
+        cJSON* d = self->fetch(&st);
+        { std::lock_guard<std::mutex> lk(self->mtx); if (self->data) cJSON_Delete(self->data); self->data = d; self->status = st; }
+        self->ready = true;
+        self->busy = false;
+        return nullptr;
+    }
+
     void kick() {
         if (busy.exchange(true)) return;
         last = std::chrono::steady_clock::now();
-        if (worker.joinable()) worker.join();
-        worker = std::thread([this]() {
-            long st = 0;
-            cJSON* d = fetch(&st);
-            { std::lock_guard<std::mutex> lk(mtx); if (data) cJSON_Delete(data); data = d; status = st; }
-            ready = true;
-            busy = false;
-        });
+        if (started) { pthread_join(worker, nullptr); started = false; }
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setstacksize(&attr, kWorkerStackSize);
+        if (pthread_create(&worker, &attr, &LiveList::threadMain, this) == 0) started = true;
+        else busy = false; // couldn't spawn — try again next frame
+        pthread_attr_destroy(&attr);
     }
     Fetch fetch; Render render; int interval;
-    std::thread worker;
+    pthread_t worker{};
+    bool started = false;
     std::mutex mtx;
     cJSON* data = nullptr;
     long status = 0;
@@ -479,8 +495,14 @@ static void buildSettings(brls::List* l) {
 
 // ================================================================ main
 int main(int argc, char* argv[]) {
+    // Must happen before Application::init() — borealis loads its material
+    // icon font from romfs:/ as part of init() itself (and we load our own
+    // icon.jpg and net::CAINFO's cacert.pem from romfs:/ too). Without this,
+    // "romfs:/..." paths simply don't resolve.
+    romfsInit();
+
     brls::Logger::setLogLevel(brls::LogLevel::INFO);
-    if (!brls::Application::init(APP_NAME)) return EXIT_FAILURE;
+    if (!brls::Application::init(APP_NAME)) { romfsExit(); return EXIT_FAILURE; }
     net::init();
     i18n::loadLang();
     applyTheme(net::getPref("theme", "system"));
@@ -508,5 +530,6 @@ int main(int argc, char* argv[]) {
     while (brls::Application::mainLoop());
 
     net::shutdown();
+    romfsExit();
     return EXIT_SUCCESS;
 }
