@@ -3,7 +3,9 @@ name: Build NextendoHub NRO
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
 
 jobs:
   build:
@@ -18,18 +20,30 @@ jobs:
       - name: Prepare Borealis
         shell: bash
         run: |
+          cd "$GITHUB_WORKSPACE"
           chmod +x setup.sh
           ./setup.sh
 
       - name: Build NRO
         shell: bash
         run: |
+          cd "$GITHUB_WORKSPACE"
+
           export DEVKITPRO=/opt/devkitpro
           export DEVKITA64=/opt/devkitpro/devkitA64
-          export PATH="$DEVKITA64/bin:/opt/devkitpro/tools/bin:$PATH"
+          export PATH="$DEVKITPRO/tools/bin:$DEVKITA64/bin:$PATH"
           export BOREALIS_RESOURCES="romfs:/"
+
+          echo "=== BUILD DIRECTORY ==="
+          pwd
+          echo "=== PROJECT FILES ==="
+          ls -la
+          echo "=== MAKEFILE ==="
+          test -f Makefile
+
           make clean || true
           make -j2
+
           test -f NextendoHub.nro
           ls -lh NextendoHub.nro
 
