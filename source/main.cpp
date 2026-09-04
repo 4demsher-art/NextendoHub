@@ -31,8 +31,16 @@ static brls::ListItem* row(const std::string& label, const std::string& value = 
     if (!value.empty()) it->setValue(value);
     return it;
 }
+// A plain brls::Label is NOT focusable. borealis's `legacy` branch has a
+// confirmed, unfixed bug (natinusala/borealis#37) where a List/ScrollView
+// with zero focusable children segfaults (null `this` in
+// ScrollView::updateScrolling -> View::getY) as soon as it's shown or
+// scrolled — the fix landed only on borealis's later `yoga` rewrite, never
+// backported here. Every "note" must therefore be a real (focusable)
+// ListItem, never a bare Label, or any all-Label list (e.g. "unreachable" /
+// "no data" states) reproduces that exact crash.
 static void note(brls::List* l, const std::string& text) {
-    l->addView(new brls::Label(brls::LabelStyle::DESCRIPTION, text, true));
+    l->addView(new brls::ListItem(text));
 }
 static std::string usernameError(const std::string& u) {           // "" == ok
     if (u.size() < 3 || u.size() > 16) return "3-16 characters";
@@ -60,6 +68,11 @@ public:
 
     LiveList(Fetch f, Render r, int intervalMs)
         : fetch(std::move(f)), render(std::move(r)), interval(intervalMs) {
+        // Must never be empty when first shown — see the note() comment
+        // above (natinusala/borealis#37). The background fetch hasn't even
+        // started yet at construction time, so add a placeholder row now;
+        // frame() replaces it with real content once data arrives.
+        this->addView(new brls::ListItem(T("loading")));
         kick();
         this->registerAction(T("refresh_hint"), brls::Key::X, [this]() { kick(); return true; });
     }
@@ -154,7 +167,7 @@ static void renderStatus(brls::List* l, cJSON* d, long st) {
     }
     cJSON* inc;
     cJSON_ArrayForEach(inc, cJSON_GetObjectItem(d, "incidents"))
-        note(l, std::string("⚠ ") + gs(inc, "title") + "\n" + gs(inc, "content"));
+        l->addView(new brls::ListItem(std::string("⚠ ") + gs(inc, "title"), gs(inc, "content")));
 }
 
 // ================================================================ FRIENDS tab
@@ -292,6 +305,7 @@ static void buildAvatarGallery(brls::List* parent) {
     cJSON* m = net::avatarsList(&st);
     if (!m) { brls::Application::notify(T("failed")); return; }
     auto* list = new brls::List();
+    int added = 0;
     auto addSet = [&](const char* key, const char* header) {
         list->addView(new brls::Header(header));
         cJSON* a = cJSON_GetObjectItem(m, key);
@@ -312,11 +326,15 @@ static void buildAvatarGallery(brls::List* parent) {
                 if (ok) brls::Application::popView();
             });
             list->addView(r);
+            added++;
         }
     };
     addSet("firmware", "Switch");
     addSet("custom", "Custom");
     cJSON_Delete(m);
+    // Headers alone aren't focusable — an empty manifest would otherwise
+    // reproduce the zero-focusable-children crash (see the note() comment).
+    if (!added) note(list, T("no_data"));
     brls::Application::pushView(list);
 }
 
