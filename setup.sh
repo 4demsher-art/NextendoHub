@@ -11,7 +11,7 @@ BOREALIS_REF="legacy"          # Old Borealis API used by this project
 if [ ! -d lib/borealis/library ]; then
   echo "==> fetching borealis ($BOREALIS_REF)"
   rm -rf lib/borealis
-  git clone --branch "$BOREALIS_REF" --single-branch "$BOREALIS_REPO" lib/borealis
+  git clone --branch "$BOREALIS_REF" --single-branch --recurse-submodules "$BOREALIS_REPO" lib/borealis
   git -C lib/borealis submodule update --init --recursive
 fi
 

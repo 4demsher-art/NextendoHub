@@ -15,37 +15,44 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Switch development packages
+        shell: bash
+        run: |
+          if command -v dkp-pacman >/dev/null 2>&1; then
+            dkp-pacman -Syu --noconfirm
+            dkp-pacman -S --needed --noconfirm switch-dev switch-curl switch-zlib switch-mbedtls
+          elif command -v pacman >/dev/null 2>&1; then
+            pacman -Sy --noconfirm
+            pacman -S --needed --noconfirm switch-dev switch-curl switch-zlib switch-mbedtls
+          else
+            echo "No devkitPro pacman found; using packages already in devkita64 image."
+          fi
+
       - name: Prepare Borealis
         shell: bash
         run: |
           chmod +x setup.sh
           ./setup.sh
 
-      - name: Diagnose Borealis
+      - name: Verify dependencies
         shell: bash
         run: |
-          echo "Borealis files:"
-          find lib/borealis -maxdepth 5 -type f \( -name 'borealis.hpp' -o -name 'borealis.h' \) -print
-          HEADER="$(find "$GITHUB_WORKSPACE/lib/borealis" -type f -name 'borealis.hpp' -print -quit)"
-          if [ -z "$HEADER" ]; then
-            echo "ERROR: borealis.hpp was not found after setup.sh"
-            echo "Top-level Borealis tree:"
-            find lib/borealis -maxdepth 3 -type d -print | head -100
-            exit 1
-          fi
-          INC="$(dirname "$HEADER")"
-          echo "Found borealis.hpp: $HEADER"
-          echo "Using include directory: $INC"
-          echo "BOREALIS_INCLUDE=$INC" >> "$GITHUB_ENV"
+          echo "==> borealis.hpp"
+          find lib/borealis -type f -name borealis.hpp -print
+          echo "==> libretro-common features_cpu.h"
+          find lib/borealis -type f -path '*/libretro-common/features/features_cpu.h' -print
+          echo "==> switch.h"
+          find "$DEVKITPRO" -type f -name switch.h -print | head -20
 
       - name: Build NRO
         shell: bash
         run: |
           export DEVKITPRO=/opt/devkitpro
           export DEVKITA64=/opt/devkitpro/devkitA64
-          export PATH="$DEVKITA64/bin:/opt/devkitpro/tools/bin:$PATH"
+          export PATH="$DEVKITPRO/tools/bin:$DEVKITA64/bin:$PATH"
+          export BOREALIS_RESOURCES="romfs:/"
           make clean || true
-          make -j2 CXXFLAGS="-I$BOREALIS_INCLUDE"
+          make -j2
           test -f NextendoHub.nro
           ls -lh NextendoHub.nro
 

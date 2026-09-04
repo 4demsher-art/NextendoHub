@@ -1,3 +1,6 @@
+CXXFLAGS += -DBOREALIS_RESOURCES="romfs:/"
+CFLAGS += -DBOREALIS_RESOURCES="romfs:/"
+
 #---------------------------------------------------------------------------------
 # NextendoHub for Nintendo Switch homebrew (.nro)  —  devkitPro / libnx + borealis
 #
@@ -47,6 +50,8 @@ LIBDIRS := $(PORTLIBS) $(LIBNX) $(BOREALIS_PATH)
 
 # Borealis legacy: keep its include tree explicit so <borealis.hpp> resolves.
 INCLUDES += $(BOREALIS_PATH)/library/include
+INCLUDES += $(BOREALIS_PATH)/library/include/libretro-common
+INCLUDES += $(BOREALIS_PATH)/library/libretro-common/include
 
 # borealis: appends to SOURCES / INCLUDES / CFLAGS / CXXFLAGS / LIBS / LIBDIRS
 include $(BOREALIS_PATH)/library/borealis.mk
