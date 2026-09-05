@@ -431,17 +431,15 @@ static void buildFriendsImpl(brls::List* l) {
     cJSON* me = (d && !sessionDead) ? cJSON_GetObjectItem(d, "me") : nullptr;
 
     // identity — the exe's prominent .id block: photo, name, friend code.
-    // setThumbnail() must run *after* addView(): ListItem::layout() positions
-    // the thumbnail using this->x/this->y, which are only correct once the
-    // parent BoxLayout has actually placed this row — call it any earlier
-    // and the thumbnail gets pinned to wherever this item's stale (0,0-ish,
-    // pre-layout) coordinates happened to be, not where the row ends up.
+    // ListItem::setThumbnail() is reverted here (and everywhere else it was
+    // added below): moving it after addView() didn't fix the misplaced-image
+    // reports, and without hardware/live debugging access there's no way to
+    // keep guessing at borealis's Image/ListItem layout internals without
+    // burning more of your testing time on unverified attempts. Text-only,
+    // which did render correctly.
     if (me) {
         auto* id = new brls::ListItem(gs(me, "username", "?"), fmtCode(gs(me, "code", "")));
         l->addView(id);
-        std::string bytes;
-        if (net::imageBytesFromDataUri(gs(me, "avatar", ""), bytes))
-            id->setThumbnail((unsigned char*)bytes.data(), bytes.size());
     }
 
     // account switcher
@@ -528,10 +526,6 @@ static void buildFriendsImpl(brls::List* l) {
                 dlg->open();
             });
             l->addView(it);
-            // must come after addView() — see the identity block's comment above.
-            std::string rbytes;
-            if (net::imageBytesFromDataUri(gs(r, "image", ""), rbytes))
-                it->setThumbnail((unsigned char*)rbytes.data(), rbytes.size());
         }
     }
 
@@ -544,17 +538,11 @@ static void buildFriendsImpl(brls::List* l) {
         std::string name = gs(f, "name");
         if (gb(f, "favorite")) name += "  ★";
         // Matches the exe's frow layout: name (+star) on top, status below as
-        // a description, formatted friend code on the right as the value,
-        // and their actual avatar as the row's thumbnail — the exe shows
-        // all four, this port previously showed only name/status.
+        // a description, formatted friend code on the right as the value.
         auto* fi = new brls::ListItem(name, state);
         std::string fcode = fmtCode(gs(f, "code", ""));
         if (!fcode.empty()) fi->setValue(fcode);
         l->addView(fi);
-        // must come after addView() — see the identity block's comment above.
-        std::string fbytes;
-        if (net::imageBytesFromDataUri(gs(f, "image", ""), fbytes))
-            fi->setThumbnail((unsigned char*)fbytes.data(), fbytes.size());
     }
     if (gi(cnt, "total") == 0) note(l, T("no_friends"));
     cJSON_Delete(d);
@@ -687,20 +675,6 @@ static void buildSettings(brls::List* l) {
             }, sel);
         });
         l->addView(cn);
-        // must come after addView() — see the identity block's comment above:
-        // ListItem::layout() positions the thumbnail from this->x/this->y,
-        // which are only correct once the parent has actually placed this
-        // row. Calling setThumbnail() earlier pinned the flag to wherever
-        // this row's pre-layout (~0,0) coordinates happened to be — nowhere
-        // near "Country", which is exactly the floating/detached flag from
-        // the screenshot.
-        if (curC.size() == 2 && std::isalpha((unsigned char)curC[0]) && std::isalpha((unsigned char)curC[1])) {
-            std::string lc = curC;
-            for (auto& c : lc) c = (char)std::tolower((unsigned char)c);
-            net::Resp fr = net::raw("GET", "https://flagcdn.com/w40/" + lc + ".png", "", "");
-            if (fr.status == 200 && !fr.body.empty())
-                cn->setThumbnail((unsigned char*)fr.body.data(), fr.body.size());
-        }
 
         // profile picture — gallery
         auto* pic = row(T("choose_avatar"));
