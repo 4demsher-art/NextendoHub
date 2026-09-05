@@ -164,6 +164,49 @@ static brls::ListItem* row(const std::string& label, const std::string& value = 
 static void note(brls::List* l, const std::string& text) {
     l->addView(new brls::ListItem(text));
 }
+
+// A ListItem that actually renders its thumbnail in the right place.
+//
+// Stock borealis (legacy) is buggy here: ListItem::layout() repositions the
+// thumbnail Image with setBoundaries() but then only calls invalidate()
+// (deferred) on it — so the Image's NanoVG image-pattern (built in
+// Image::layout() from getX()/getY()) can stay anchored at the Image's
+// previous/zero origin for one or more frames. The rounded-rect is filled at
+// the correct spot with a pattern sampled from the wrong spot => the picture
+// looks detached from its row (the "floating flag") or smears into a flat
+// colour block (the "oversized pink box"). On a row that also has a
+// description, ListItem::layout() additionally sizes the thumbnail to the
+// description-grown height, making it far too tall.
+//
+// This subclass re-pins the thumbnail to a fixed square at the row's left
+// edge (label line only) and forces an *immediate* re-layout every pass, so
+// the pattern is always rebuilt against the final coordinates.
+class ThumbListItem : public brls::ListItem {
+public:
+    ThumbListItem(const std::string& label, const std::string& description = "", const std::string& subLabel = "")
+        : brls::ListItem(label, description, subLabel) {}
+
+    // Give the row its picture from raw encoded image bytes (PNG/JPEG).
+    // Keeps its own copy; borealis's Image also copies internally.
+    void setPicture(const std::string& bytes) {
+        this->picture = bytes;
+        if (!this->picture.empty())
+            this->setThumbnail((unsigned char*)this->picture.data(), this->picture.size());
+    }
+
+    void layout(NVGcontext* vg, brls::Style* style, brls::FontStash* stash) override {
+        brls::ListItem::layout(vg, style, stash);
+        if (this->thumbnailView) {
+            unsigned pad  = style->List.Item.thumbnailPadding;
+            unsigned side = style->List.Item.height - pad * 2; // label line, not the grown height
+            this->thumbnailView->setBoundaries(this->x + pad, this->y + pad, side, side);
+            this->thumbnailView->invalidate(true);            // rebuild imgPaint against final coords NOW
+        }
+    }
+
+private:
+    std::string picture;
+};
 static std::string usernameError(const std::string& u) {           // "" == ok
     if (u.size() < 3 || u.size() > 16) return T("uname_len_rule");
     for (char c : u) if (!(std::isalnum((unsigned char)c) || c == '_' || c == '-')) return T("uname_char_rule");
@@ -356,9 +399,24 @@ static void renderStatus(brls::List* l, cJSON* d, long st, bool stale, time_t at
         cJSON* m;
         cJSON_ArrayForEach(m, cJSON_GetObjectItem(g, "monitors")) {
             int s = gi(m, "status", -1);
-            const char* tag = s == 1 ? T("st_up") : s == 0 ? T("st_down") : s == 3 ? T("st_maint") : "?";
-            std::string v = tag;
-            if (cJSON_GetObjectItem(m, "ping")) v += "  ·  " + std::to_string(gi(m, "ping")) + " ms";
+            const char* tag = s == 1 ? T("st_up") : s == 0 ? T("st_down") : s == 3 ? T("st_maint") : T("st_up");
+            // Same meta line as the exe: "<uptime%> · <ping> ms", falling
+            // back to the plain status word when neither number is present.
+            std::vector<std::string> meta;
+            cJSON* up24 = cJSON_GetObjectItem(m, "uptime24");
+            if (cJSON_IsNumber(up24)) {
+                double pct = up24->valuedouble * 100.0;
+                double r = (double)((long long)(pct * 100.0 + 0.5)) / 100.0; // round to 2dp
+                char b[16];
+                if (r >= 100.0) snprintf(b, sizeof(b), "100%%");
+                else if (r == (double)(long long)r) snprintf(b, sizeof(b), "%lld%%", (long long)r);
+                else snprintf(b, sizeof(b), "%.2f%%", r);
+                meta.push_back(b);
+            }
+            if (cJSON_GetObjectItem(m, "ping")) meta.push_back(std::to_string(gi(m, "ping")) + " ms");
+            std::string v;
+            for (size_t i = 0; i < meta.size(); i++) v += (i ? "  ·  " : "") + meta[i];
+            if (v.empty()) v = tag;
             l->addView(row(gs(m, "name"), v));
         }
     }
@@ -431,15 +489,12 @@ static void buildFriendsImpl(brls::List* l) {
     cJSON* me = (d && !sessionDead) ? cJSON_GetObjectItem(d, "me") : nullptr;
 
     // identity — the exe's prominent .id block: photo, name, friend code.
-    // ListItem::setThumbnail() is reverted here (and everywhere else it was
-    // added below): moving it after addView() didn't fix the misplaced-image
-    // reports, and without hardware/live debugging access there's no way to
-    // keep guessing at borealis's Image/ListItem layout internals without
-    // burning more of your testing time on unverified attempts. Text-only,
-    // which did render correctly.
     if (me) {
-        auto* id = new brls::ListItem(gs(me, "username", "?"), fmtCode(gs(me, "code", "")));
+        auto* id = new ThumbListItem(gs(me, "username", "?"), fmtCode(gs(me, "code", "")));
         l->addView(id);
+        std::string bytes;
+        if (net::imageBytesFromDataUri(gs(me, "avatar", ""), bytes))
+            id->setPicture(bytes);
     }
 
     // account switcher
@@ -518,7 +573,7 @@ static void buildFriendsImpl(brls::List* l) {
         cJSON_ArrayForEach(r, reqs) {
             int pid = gi(r, "pid");
             std::string rcode = fmtCode(gs(r, "code", ""));
-            auto* it = new brls::ListItem(gs(r, "name"), std::string(T("wants_to_add")) + (rcode.empty() ? "" : "  ·  " + rcode));
+            auto* it = new ThumbListItem(gs(r, "name"), std::string(T("wants_to_add")) + (rcode.empty() ? "" : "  ·  " + rcode));
             it->getClickEvent()->subscribe([l, pid](brls::View*) {
                 auto* dlg = new brls::Dialog(T("friend_requests"));
                 dlg->addButton(T("accept"),  [l, pid](brls::View*) { net::friendAccept(pid);  buildFriends(l); });
@@ -526,6 +581,9 @@ static void buildFriendsImpl(brls::List* l) {
                 dlg->open();
             });
             l->addView(it);
+            std::string rbytes;
+            if (net::imageBytesFromDataUri(gs(r, "image", ""), rbytes))
+                it->setPicture(rbytes);
         }
     }
 
@@ -538,11 +596,16 @@ static void buildFriendsImpl(brls::List* l) {
         std::string name = gs(f, "name");
         if (gb(f, "favorite")) name += "  ★";
         // Matches the exe's frow layout: name (+star) on top, status below as
-        // a description, formatted friend code on the right as the value.
-        auto* fi = new brls::ListItem(name, state);
+        // a description, formatted friend code on the right as the value,
+        // and their actual avatar as the row's thumbnail — the exe shows
+        // all four, this port previously showed only name/status.
+        auto* fi = new ThumbListItem(name, state);
         std::string fcode = fmtCode(gs(f, "code", ""));
         if (!fcode.empty()) fi->setValue(fcode);
         l->addView(fi);
+        std::string fbytes;
+        if (net::imageBytesFromDataUri(gs(f, "image", ""), fbytes))
+            fi->setPicture(fbytes);
     }
     if (gi(cnt, "total") == 0) note(l, T("no_friends"));
     cJSON_Delete(d);
@@ -655,10 +718,10 @@ static void buildSettings(brls::List* l) {
         });
         l->addView(un);
 
-        // country — the exe shows the flag as an <img> from flagcdn.com;
-        // fetch and show it as this row's thumbnail the same way.
+        // country
         std::string curC = p ? gs(p, "country", "") : "";
-        auto* cn = row(T("country"), curC.empty() ? "--" : curC);
+        auto* cn = new ThumbListItem(T("country"));
+        cn->setValue(curC.empty() ? "--" : curC);
         cn->getClickEvent()->subscribe([l](brls::View*) {
             auto codes = net::countryList();
             if (codes.empty()) { brls::Application::notify(T("failed")); return; }
@@ -675,6 +738,16 @@ static void buildSettings(brls::List* l) {
             }, sel);
         });
         l->addView(cn);
+        // The exe shows the Mario-Kart country flag as an <img> from
+        // flagcdn.com; fetch the same PNG and hand it to the row as its
+        // thumbnail (ThumbListItem keeps it pinned to the row).
+        if (curC.size() == 2 && std::isalpha((unsigned char)curC[0]) && std::isalpha((unsigned char)curC[1])) {
+            std::string lc = curC;
+            for (auto& c : lc) c = (char)std::tolower((unsigned char)c);
+            net::Resp fr = net::raw("GET", "https://flagcdn.com/w80/" + lc + ".png", "", "");
+            if (fr.status == 200 && !fr.body.empty())
+                cn->setPicture(fr.body);
+        }
 
         // profile picture — gallery
         auto* pic = row(T("choose_avatar"));
