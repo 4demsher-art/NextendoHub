@@ -36,6 +36,11 @@ fi
 echo "==> staging borealis resources into romfs/"
 mkdir -p romfs
 cp -r lib/borealis/resources/* romfs/ 2>/dev/null || true
+# English-only build: borealis ships an `fr` locale and loads it whenever the
+# console's system language matches, which is what leaked French into the
+# built-in hint bar. Keep only en-US so every borealis string resolves to
+# English regardless of console language.
+find romfs/i18n -mindepth 1 -maxdepth 1 -type d ! -name 'en-US' -exec rm -rf {} + 2>/dev/null || true
 # our own extras alongside them:
 #   romfs/cacert.pem   (TLS CA bundle — already in the zip)
 #   romfs/icon.jpg      (copied from ./icon.jpg for the in-app header)

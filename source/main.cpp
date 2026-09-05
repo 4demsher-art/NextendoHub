@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <utility>
+#include <functional>
 #include <pthread.h>
 #include <atomic>
 #include <mutex>
@@ -188,24 +190,34 @@ public:
 
     // Give the row its picture from raw encoded image bytes (PNG/JPEG).
     // Keeps its own copy; borealis's Image also copies internally.
-    void setPicture(const std::string& bytes) {
+    // wide == true: use a 4:3 box filled edge-to-edge (SCALE) instead of a
+    // square — borealis's FIT math is broken for non-square images (it makes
+    // a 4:3 flag *taller* than wide, overflowing the row), so square avatars
+    // stay on FIT and only the country flag opts into this.
+    void setPicture(const std::string& bytes, bool wide = false) {
         this->picture = bytes;
-        if (!this->picture.empty())
-            this->setThumbnail((unsigned char*)this->picture.data(), this->picture.size());
+        this->wideThumb = wide;
+        if (this->picture.empty()) return;
+        this->setThumbnail((unsigned char*)this->picture.data(), this->picture.size());
+        if (this->thumbnailView)
+            this->thumbnailView->setScaleType(wide ? brls::ImageScaleType::SCALE
+                                                   : brls::ImageScaleType::FIT);
     }
 
     void layout(NVGcontext* vg, brls::Style* style, brls::FontStash* stash) override {
         brls::ListItem::layout(vg, style, stash);
         if (this->thumbnailView) {
-            unsigned pad  = style->List.Item.thumbnailPadding;
-            unsigned side = style->List.Item.height - pad * 2; // label line, not the grown height
-            this->thumbnailView->setBoundaries(this->x + pad, this->y + pad, side, side);
-            this->thumbnailView->invalidate(true);            // rebuild imgPaint against final coords NOW
+            unsigned pad = style->List.Item.thumbnailPadding;
+            unsigned h   = style->List.Item.height - pad * 2; // label line, not the grown height
+            unsigned w   = this->wideThumb ? (h * 4) / 3 : h;
+            this->thumbnailView->setBoundaries(this->x + pad, this->y + pad, w, h);
+            this->thumbnailView->invalidate(true);           // rebuild imgPaint against final coords NOW
         }
     }
 
 private:
     std::string picture;
+    bool wideThumb = false;
 };
 static std::string usernameError(const std::string& u) {           // "" == ok
     if (u.size() < 3 || u.size() > 16) return T("uname_len_rule");
@@ -628,42 +640,106 @@ static void applyTheme(const std::string& /*t*/) {
     // platforms) but it has no visible effect here; see theme_na.
 }
 
-static void buildAvatarGallery(brls::List* parent) {
+// The avatar picker: one row per avatar showing *just the image* (no name),
+// matching the exe's gallery grid. The PNGs are fetched on a background
+// thread and streamed into their rows so opening the picker doesn't freeze
+// the UI on dozens of sequential HTTPS GETs.
+class AvatarGrid : public brls::List {
+public:
+    AvatarGrid(std::vector<std::string> names, std::function<void(const std::string&)> onPick)
+        : names(std::move(names)), onPick(std::move(onPick)) {
+        for (size_t i = 0; i < this->names.size(); i++) {
+            auto* it = new ThumbListItem("");            // image only, no label
+            std::string n = this->names[i];
+            it->getClickEvent()->subscribe([this, n](brls::View*) { this->onPick(n); });
+            rows.push_back(it);
+            this->addView(it);
+        }
+        if (rows.empty()) note(this, T("no_data"));     // never leave the list empty (#37)
+
+        // B / press-back always exits the picker (a bare pushed List has no
+        // frame chrome, so nothing registers Back otherwise — that's why the
+        // menu felt inescapable).
+        this->registerAction("Back", brls::Key::B, [] { brls::Application::popView(); return true; });
+
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setstacksize(&attr, 256 * 1024);
+        if (pthread_create(&worker, &attr, &AvatarGrid::run, this) == 0) started = true;
+        pthread_attr_destroy(&attr);
+        registry().push_back(this);
+    }
+    ~AvatarGrid() override {
+        alive = false;
+        if (started) { pthread_join(worker, nullptr); started = false; }
+        auto& r = registry();
+        r.erase(std::remove(r.begin(), r.end(), this), r.end());
+    }
+    static void joinAll() {
+        for (AvatarGrid* g : registry()) if (g->started) { pthread_join(g->worker, nullptr); g->started = false; }
+    }
+    void frame(brls::FrameContext* ctx) override {
+        {
+            std::lock_guard<std::mutex> lk(mtx);
+            for (auto& pr : inbox)
+                if (pr.first >= 0 && pr.first < (int)rows.size() && !pr.second.empty())
+                    rows[pr.first]->setPicture(pr.second);
+            inbox.clear();
+        }
+        brls::List::frame(ctx);
+    }
+private:
+    static std::vector<AvatarGrid*>& registry() { static std::vector<AvatarGrid*> v; return v; }
+    static void* run(void* arg) {
+        auto* self = static_cast<AvatarGrid*>(arg);
+        for (size_t i = 0; i < self->names.size() && self->alive; i++) {
+            std::string bytes;
+            if (net::avatarImageBytes(self->names[i], bytes) && !bytes.empty()) {
+                std::lock_guard<std::mutex> lk(self->mtx);
+                self->inbox.emplace_back((int)i, std::move(bytes));
+            }
+        }
+        return nullptr;
+    }
+    std::vector<std::string> names;
+    std::function<void(const std::string&)> onPick;
+    std::vector<ThumbListItem*> rows;
+    pthread_t worker{};
+    bool started = false;
+    std::mutex mtx;
+    std::vector<std::pair<int, std::string>> inbox;
+    std::atomic<bool> alive{true};
+};
+
+static void buildAvatarGallery(brls::List* /*parent*/) {
     long st = 0;
     cJSON* m = net::avatarsList(&st);
     if (!m) { brls::Application::notify(T("failed")); return; }
-    auto* list = new brls::List();
-    int added = 0;
-    auto addSet = [&](const char* key, const char* header) {
-        list->addView(new brls::Header(header));
+
+    std::vector<std::string> names;
+    for (const char* key : { "firmware", "custom" }) {
         cJSON* a = cJSON_GetObjectItem(m, key);
         cJSON* it;
-        cJSON_ArrayForEach(it, a) {
-            if (!cJSON_IsString(it)) continue;
-            std::string name = it->valuestring;
-            auto* r = row(name);
-            r->getClickEvent()->subscribe([name, parent](brls::View*) {
-                std::string bytes;
-                if (!net::avatarImageBytes(name, bytes)) { brls::Application::notify(T("failed")); return; }
-                std::string img = "data:image/png;base64," +
-                    net::b64((const unsigned char*)bytes.data(), bytes.size());
-                std::string avatarJson = "{\"char\":\"" + name + "\"}";
-                std::string e;
-                bool ok = net::profileSave("", img, "", avatarJson, e);
-                brls::Application::notify(ok ? T("saved") : e);
-                if (ok) brls::Application::popView();
-            });
-            list->addView(r);
-            added++;
-        }
-    };
-    addSet("firmware", "Switch");
-    addSet("custom", "Custom");
+        cJSON_ArrayForEach(it, a)
+            if (cJSON_IsString(it)) names.push_back(it->valuestring);
+    }
     cJSON_Delete(m);
-    // Headers alone aren't focusable — an empty manifest would otherwise
-    // reproduce the zero-focusable-children crash (see the note() comment).
-    if (!added) note(list, T("no_data"));
-    brls::Application::pushView(list);
+
+    auto onPick = [](const std::string& name) {
+        std::string bytes;
+        if (!net::avatarImageBytes(name, bytes)) { brls::Application::notify(T("failed")); return; }
+        // /api/profile wants image = raw base64 payload, NO "data:" prefix
+        // (see the desktop app's profile:save handler) — sending a data URI
+        // is exactly what made the server answer "invalid".
+        std::string img = net::b64((const unsigned char*)bytes.data(), bytes.size());
+        std::string avatarJson = "{\"char\":\"" + name + "\"}";
+        std::string e;
+        bool ok = net::profileSave("", img, "", avatarJson, e);
+        brls::Application::notify(ok ? T("saved") : e);
+        if (ok) brls::Application::popView();
+    };
+
+    brls::Application::pushView(new AvatarGrid(std::move(names), onPick));
 }
 
 static void buildSettings(brls::List* l) {
@@ -681,20 +757,6 @@ static void buildSettings(brls::List* l) {
         }, net::getPref("theme", "system") == "light" ? 1 : net::getPref("theme", "system") == "dark" ? 2 : 0);
     });
     l->addView(th);
-
-    auto* lang = row(T("language"), i18n::lang() == "fr" ? "Français" : i18n::lang() == "es" ? "Español" : "English");
-    lang->getClickEvent()->subscribe([l](brls::View*) {
-        brls::Dropdown::open(T("language"), { "English", "Français", "Español" }, [l](int i) {
-            i18n::setLang(i == 1 ? "fr" : i == 2 ? "es" : "en");
-            buildSettings(l);
-            brls::Application::notify(T("retranslate_hint"));
-        }, i18n::lang() == "fr" ? 1 : i18n::lang() == "es" ? 2 : 0);
-    });
-    l->addView(lang);
-
-    auto* su = row(T("startup"), T("startup_na"));
-    su->setValue(T("startup_na"), true);
-    l->addView(su);
 
     // ---- account section (only when signed in) ----
     if (net::signedIn()) {
@@ -746,7 +808,7 @@ static void buildSettings(brls::List* l) {
             for (auto& c : lc) c = (char)std::tolower((unsigned char)c);
             net::Resp fr = net::raw("GET", "https://flagcdn.com/w80/" + lc + ".png", "", "");
             if (fr.status == 200 && !fr.body.empty())
-                cn->setPicture(fr.body);
+                cn->setPicture(fr.body, /*wide=*/true);
         }
 
         // profile picture — gallery
@@ -829,7 +891,12 @@ static void buildSettings(brls::List* l) {
 
     // ---- credit ----
     l->addView(new brls::Header(T("about")));
-    note(l, T("about_line"));
+    {
+        // Just the app name, centred — not the long descriptive paragraph.
+        auto* title = new brls::Label(brls::LabelStyle::MEDIUM, APP_NAME, false);
+        title->setHorizontalAlign(NVG_ALIGN_CENTER);
+        l->addView(title);
+    }
     l->addView(row(T("made_by"), "adxmm"));
     l->addView(row(T("friend_code"), fmtCode(net::getPref("credit_fc", "SW-????-????-????"))));
     l->addView(row("Discord", "diavolo.__"));
@@ -897,7 +964,11 @@ int main(int argc, char* argv[]) {
     // text reported at the bottom of the screen.
     brls::i18n::loadTranslations();
     net::init();
-    i18n::loadLang();
+    // English-only build: ignore any stored language pref and pin "en" so a
+    // previously-saved fr/es choice can't leak French/Spanish strings into
+    // the UI. (The Language picker is gone from Settings, and setup.sh keeps
+    // only romfs:/i18n/en-US so borealis's own hints stay English too.)
+    i18n::setLang("en");
     applyTheme(net::getPref("theme", "system"));
 
     auto* root = new brls::TabFrame();
@@ -934,6 +1005,7 @@ int main(int argc, char* argv[]) {
     // exact moment net::shutdown() tears them down underneath it — a real
     // crash on close, not just a slow one.
     LiveList::joinAllBeforeShutdown();
+    AvatarGrid::joinAll(); // same reason: its image-fetch thread must not outlive net::shutdown()
     net::shutdown();
     romfsExit();
     setsysExit();
