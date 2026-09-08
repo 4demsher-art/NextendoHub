@@ -36,32 +36,44 @@
     --wash:.22;
   }
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%}
+  html,body{margin:0;height:100%;overflow:hidden}          /* the app never scrolls; only a tab's body can, if it must */
   body{
     font-family:var(--font-ui); color:var(--ink);
+    text-rendering:optimizeLegibility;
     background:
       radial-gradient(700px 440px at 6% -10%, color-mix(in srgb,var(--grad-a) calc(var(--wash)*100%),transparent), transparent 60%),
       radial-gradient(760px 560px at 114% 8%, color-mix(in srgb,var(--grad-b) calc(var(--wash)*100%),transparent), transparent 55%),
       var(--ground);
-    -webkit-font-smoothing:antialiased;
+    -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
     display:flex; flex-direction:column; height:100%;
   }
 
   /* ---- stage : one tab visible, fills everything above the taskbar ---- */
   .stage{position:relative; flex:1; min-height:0}
-  .tab{position:absolute; inset:0; overflow-y:auto; padding:20px 24px 26px;
-       padding-left:max(24px, env(safe-area-inset-left));
-       padding-right:max(24px, env(safe-area-inset-right));
-       padding-bottom:max(26px, env(safe-area-inset-bottom))}
+  .tab{position:absolute; inset:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
+       padding:16px 20px 18px;
+       padding-left:max(20px, env(safe-area-inset-left));
+       padding-right:max(20px, env(safe-area-inset-right))}
   .tab[hidden]{display:none}
   .wrap{max-width:720px; margin:0 auto}
 
-  /* phones: use the full width, don't waste it on big margins */
+  /* tab-change animation (Profile <-> Settings etc). CSS animations replay
+     whenever the element goes display:none -> block, so no JS is needed. */
+  .tab:not([hidden]){animation:tabIn .28s cubic-bezier(.22,.68,.28,1) both}
+  @keyframes tabIn{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){.tab:not([hidden]){animation:none}}
+
+  /* phones: shrink everything uniformly so a tab fits on screen without
+     scrolling, and use the full width. `zoom` re-rasterises (stays crisp),
+     unlike transform:scale. */
   @media (max-width:480px){
-    .tab{padding:16px 14px 20px;
-         padding-left:max(14px, env(safe-area-inset-left));
-         padding-right:max(14px, env(safe-area-inset-right))}
+    .wrap,.login-wrap{zoom:.86; max-width:none}
+    .tab{padding:10px 12px 12px;
+         padding-left:max(12px, env(safe-area-inset-left));
+         padding-right:max(12px, env(safe-area-inset-right))}
   }
+  @media (max-width:400px){ .wrap,.login-wrap{zoom:.82} }
+  @media (max-height:720px){ .wrap,.login-wrap{zoom:.78} }
 
   .sechead{display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin:0 2px 12px}
   .sechead h1{font-family:var(--font-dis); font-weight:800; letter-spacing:-.02em; font-size:22px; margin:0}
@@ -190,13 +202,15 @@
   /* ---- taskbar ---- */
   .taskbar{
     flex:none; display:flex; border-top:1px solid var(--glass-line);
-    background:var(--raise); padding:6px 8px; gap:4px;
+    background:var(--raise); gap:4px;
+    padding:5px 8px calc(5px + env(safe-area-inset-bottom));
   }
   .taskbar button{
-    all:unset; cursor:pointer; flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
-    padding:8px 4px; border-radius:12px; color:var(--ink-mute); font-size:11px; font-weight:700; letter-spacing:.02em;
+    all:unset; cursor:pointer; flex:1; display:flex; flex-direction:column; align-items:center; gap:2px;
+    padding:6px 4px; border-radius:12px; color:var(--ink-mute); font-size:10.5px; font-weight:700; letter-spacing:.02em;
+    transition:color .18s ease, background .18s ease;
   }
-  .taskbar button svg{width:22px;height:22px}
+  .taskbar button svg{width:20px;height:20px}
   .taskbar button:hover{color:var(--ink-dim)}
   .taskbar button[aria-current="page"]{color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,transparent)}
   .taskbar button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
@@ -373,14 +387,6 @@
               <button data-lang="es">Español</button>
             </div>
           </div>
-          <div class="srow">
-            <span data-i18n="startup_label">Launch at startup</span>
-            <div class="seg" id="seg-startup">
-              <button data-startup="0" aria-pressed="true" data-i18n="startup_off">Off</button>
-              <button data-startup="1" aria-pressed="false" data-i18n="startup_on">On</button>
-            </div>
-            <p class="muted tiny" style="margin-top:7px" data-i18n="startup_hint">Opens to the tray when Windows starts.</p>
-          </div>
         </div>
 
         <div id="acct-locked" class="card" style="margin-top:14px" hidden>
@@ -489,11 +495,11 @@ var I18N = {
     online_note:"Real figures, live from nextendo.network/api/online-counts, self-updating every 15s.",
     player_one:"player", player_many:"players", no_data:"No data yet.",
     settings:"Settings", theme_label:"Theme", theme_system:"System", theme_light:"Light", theme_dark:"Dark",
-    lang_label:"Language", startup_label:"Launch at startup", startup_on:"On", startup_off:"Off", startup_hint:"Opens to the tray when Windows starts.",
+    lang_label:"Language",
     about_line:"Nextendo Hub — server status & online counts from status.nextendo.network and nextendo.network/api/online-counts; friends from your account. Unofficial client.",
     sign_in:"Sign in", email:"Email address", password:"Password",
     login_lede:"Log in with your Nextendo Network account to load your profile and friends.",
-    fineprint:'Your email and password are sent once to <code>nextendo.network/api/login</code> and are not saved. Only the session token is kept on this PC (encrypted). Unofficial client.',
+    fineprint:'Your email and password are sent once to <code>nextendo.network/api/login</code> and are not saved. Only the session token is stored on this device, in the iOS Keychain. Unofficial client.',
     friends:"Friends", friend_requests:"Friend requests", add:"Add", refresh:"Refresh", log_out:"Log out",
     playing:"Playing", online_word:"Online", offline_word:"Offline", wants_to_add:"wants to add you",
     accept:"Accept", decline:"Decline",
@@ -508,7 +514,7 @@ var I18N = {
     country_label:"Country (Mario Kart flag)", country_none:"Not set",
     saves_label:"Cloud saves", saves_none:"No cloud saves.",
     saves_gate_email:"Verify your email to enable cloud saves.", saves_gate_discord:"Link your Discord account to enable cloud saves.",
-    save_download:"Download", save_delete:"Delete", save_deleted:"Deleted.", save_downloaded:"Saved to disk.", save_confirm:"Delete the cloud save for {g}? This is permanent.",
+    save_download:"Download", save_delete:"Delete", save_deleted:"Deleted.", save_downloaded:"Saved to Files.", save_confirm:"Delete the cloud save for {g}? This is permanent.",
     mods_label:"Favourite mods", mods_none:"No favourite mods.", mods_unavailable:"Favourite mods aren’t available through this API."
   },
   fr: {
@@ -522,11 +528,11 @@ var I18N = {
     online_note:"Chiffres réels, en direct de nextendo.network/api/online-counts, rafraîchis toutes les 15 s.",
     player_one:"joueur", player_many:"joueurs", no_data:"Aucune donnée pour l’instant.",
     settings:"Réglages", theme_label:"Thème", theme_system:"Système", theme_light:"Clair", theme_dark:"Sombre",
-    lang_label:"Langue", startup_label:"Lancer au démarrage", startup_on:"Activé", startup_off:"Désactivé", startup_hint:"S’ouvre dans la zone de notification au démarrage de Windows.",
+    lang_label:"Langue",
     about_line:"Nextendo Hub — état des serveurs et joueurs en ligne depuis status.nextendo.network et nextendo.network/api/online-counts ; amis depuis ton compte. Client non officiel.",
     sign_in:"Se connecter", email:"Adresse e-mail", password:"Mot de passe",
     login_lede:"Connecte-toi avec ton compte Nextendo Network pour charger ton profil et tes amis.",
-    fineprint:'Ton e-mail et ton mot de passe sont envoyés une fois à <code>nextendo.network/api/login</code> et ne sont pas conservés. Seul le jeton de session reste sur ce PC (chiffré). Client non officiel.',
+    fineprint:'Ton e-mail et ton mot de passe sont envoyés une fois à <code>nextendo.network/api/login</code> et ne sont pas conservés. Seul le jeton de session est stocké sur cet appareil, dans le trousseau iOS. Client non officiel.',
     friends:"Amis", friend_requests:"Demandes d’ami", add:"Ajouter", refresh:"Actualiser", log_out:"Se déconnecter",
     playing:"Joue à", online_word:"En ligne", offline_word:"Hors ligne", wants_to_add:"veut t’ajouter",
     accept:"Accepter", decline:"Refuser",
@@ -541,7 +547,7 @@ var I18N = {
     country_label:"Pays (drapeau Mario Kart)", country_none:"Non défini",
     saves_label:"Sauvegardes cloud", saves_none:"Aucune sauvegarde cloud.",
     saves_gate_email:"Vérifie ton adresse e-mail pour activer les sauvegardes cloud.", saves_gate_discord:"Lie ton compte Discord pour activer les sauvegardes cloud.",
-    save_download:"Télécharger", save_delete:"Supprimer", save_deleted:"Supprimée.", save_downloaded:"Enregistrée sur le disque.", save_confirm:"Supprimer la sauvegarde cloud de {g} ? C’est définitif.",
+    save_download:"Télécharger", save_delete:"Supprimer", save_deleted:"Supprimée.", save_downloaded:"Enregistrée dans Fichiers.", save_confirm:"Supprimer la sauvegarde cloud de {g} ? C’est définitif.",
     mods_label:"Mods favoris", mods_none:"Aucun mod favori.", mods_unavailable:"Les mods favoris ne sont pas accessibles via cette API."
   },
   es: {
@@ -555,11 +561,11 @@ var I18N = {
     online_note:"Cifras reales, en vivo desde nextendo.network/api/online-counts, se actualizan cada 15 s.",
     player_one:"jugador", player_many:"jugadores", no_data:"Sin datos por ahora.",
     settings:"Ajustes", theme_label:"Tema", theme_system:"Sistema", theme_light:"Claro", theme_dark:"Oscuro",
-    lang_label:"Idioma", startup_label:"Abrir al inicio", startup_on:"Sí", startup_off:"No", startup_hint:"Se abre en la bandeja al iniciar Windows.",
+    lang_label:"Idioma",
     about_line:"Nextendo Hub — estado de servidores y jugadores en línea desde status.nextendo.network y nextendo.network/api/online-counts; amigos desde tu cuenta. Cliente no oficial.",
     sign_in:"Iniciar sesión", email:"Correo electrónico", password:"Contraseña",
     login_lede:"Inicia sesión con tu cuenta de Nextendo Network para cargar tu perfil y amigos.",
-    fineprint:'Tu correo y contraseña se envían una vez a <code>nextendo.network/api/login</code> y no se guardan. Solo el token de sesión se guarda en este PC (cifrado). Cliente no oficial.',
+    fineprint:'Tu correo y contraseña se envían una vez a <code>nextendo.network/api/login</code> y no se guardan. Solo el token de sesión se guarda en este dispositivo, en el Llavero de iOS. Cliente no oficial.',
     friends:"Amigos", friend_requests:"Solicitudes de amistad", add:"Añadir", refresh:"Actualizar", log_out:"Cerrar sesión",
     playing:"Jugando a", online_word:"En línea", offline_word:"Sin conexión", wants_to_add:"quiere añadirte",
     accept:"Aceptar", decline:"Rechazar",
@@ -574,7 +580,7 @@ var I18N = {
     country_label:"País (bandera de Mario Kart)", country_none:"Sin definir",
     saves_label:"Guardados en la nube", saves_none:"Sin guardados en la nube.",
     saves_gate_email:"Verifica tu correo para activar los guardados en la nube.", saves_gate_discord:"Vincula tu cuenta de Discord para activar los guardados en la nube.",
-    save_download:"Descargar", save_delete:"Eliminar", save_deleted:"Eliminado.", save_downloaded:"Guardado en disco.", save_confirm:"¿Eliminar el guardado en la nube de {g}? Es permanente.",
+    save_download:"Descargar", save_delete:"Eliminar", save_deleted:"Eliminado.", save_downloaded:"Guardado en Archivos.", save_confirm:"¿Eliminar el guardado en la nube de {g}? Es permanente.",
     mods_label:"Mods favoritos", mods_none:"Sin mods favoritos.", mods_unavailable:"Los mods favoritos no están disponibles con esta API."
   }
 };
@@ -653,23 +659,6 @@ $('seg-lang').addEventListener('click', function(e){
   var b = e.target.closest('button'); if (!b) return;
   S.lang = b.dataset.lang; try { localStorage.setItem('nxhub.lang', S.lang); } catch(_){}
   applyLang();
-});
-
-function paintStartup(on){
-  Array.prototype.forEach.call($('seg-startup').children, function(b){
-    b.setAttribute('aria-pressed', String((b.dataset.startup === '1') === !!on));
-  });
-}
-function loadStartup(){
-  if (!(window.nextendo && window.nextendo.startupGet)) return;
-  window.nextendo.startupGet().then(function(r){ paintStartup(r && r.ok && r.enabled); });
-}
-$('seg-startup').addEventListener('click', async function(e){
-  var b = e.target.closest('button'); if (!b) return;
-  var on = b.dataset.startup === '1';
-  paintStartup(on);
-  var r = await window.nextendo.startupSet(on);
-  if (!r || !r.ok) paintStartup(!on);   // revert on failure
 });
 
 /* ------------------------------------------------ SERVERS */
@@ -1283,7 +1272,6 @@ async function refreshAccount(){
 applyTheme();
 applyLang();
 setTab(S.tab);
-loadStartup();
 statusLoading(); onlineLoading();
 tickStatus(); setInterval(tickStatus, STATUS_MS);
 tickOnline(); setInterval(tickOnline, ONLINE_MS);

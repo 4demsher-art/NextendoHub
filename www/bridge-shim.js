@@ -62,10 +62,6 @@
     savesDownload:function (titleId, name) { return call("savesDownload", [{ titleId: titleId, name: name }]); },
     modsFavorites:function () { return call("modsFavorites"); },
     avatarsList:  function () { return call("avatarsList"); },
-    avatarImage:  function (name) { return call("avatarImage", [name]); },
-
-    // desktop-only — harmless no-ops on iOS (renderer already guards these)
-    startupGet:   function () { return call("startupGet"); },
-    startupSet:   function (enabled) { return call("startupSet", [enabled]); }
+    avatarImage:  function (name) { return call("avatarImage", [name]); }
   };
 })();

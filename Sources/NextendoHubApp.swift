@@ -6,9 +6,10 @@ struct NextendoHubApp: App {
     var body: some Scene {
         WindowGroup {
             WebHostView()
-                .ignoresSafeArea(.container, edges: .bottom)
-                .statusBar(hidden: false)
-                .preferredColorScheme(nil)   // the web UI follows the system theme itself
+                .ignoresSafeArea()                       // true full screen — web UI draws to every edge
+                .statusBar(hidden: true)
+                .persistentSystemOverlays(.hidden)       // dim the home indicator
+                .preferredColorScheme(nil)               // the web UI follows the system theme itself
         }
     }
 }
