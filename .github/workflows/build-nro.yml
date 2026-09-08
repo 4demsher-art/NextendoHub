@@ -34,15 +34,30 @@ jobs:
       # flakiness, not a config problem. Retry with backoff instead of
       # failing the whole job on the first hiccup.
       - name: Install Switch portlibs
+        shell: bash
         run: |
-          for i in 1 2 3 4 5; do
-            dkp-pacman -Sy --noconfirm --needed \
-              switch-dev switch-curl switch-mbedtls switch-zlib \
-              switch-glfw switch-mesa switch-libdrm_nouveau && break
-            echo "pacman sync failed (attempt $i) — retrying in 15s..."
-            sleep 15
-            if [ "$i" = 5 ]; then exit 1; fi
+          set -u
+          PKGS="switch-dev switch-curl switch-mbedtls switch-zlib switch-glfw switch-mesa switch-libdrm_nouveau"
+          ok=0
+          for i in $(seq 1 8); do
+            # -Sy can 403 on the .db files; if it does, keep going and let the
+            # per-package installs (which --needed makes idempotent) accumulate
+            # whatever got through.
+            dkp-pacman -Sy --noconfirm || true
+            miss=0
+            for p in $PKGS; do
+              dkp-pacman -S --noconfirm --needed "$p" || miss=1
+            done
+            if [ "$miss" = 0 ]; then ok=1; break; fi
+            w=$(( i * 20 + RANDOM % 20 ))
+            echo "portlibs still incomplete (attempt $i/8) — retrying in ${w}s"
+            sleep "$w"
           done
+          if [ "$ok" != 1 ]; then
+            echo "::error::could not install devkitPro portlibs after 8 attempts (pkg.devkitpro.org behind Cloudflare keeps 403-ing this runner)"
+            exit 1
+          fi
+          dkp-pacman -Q | grep -E 'switch-(curl|mbedtls|glfw|mesa|zlib)' || true
 
       # Cache the cloned borealis checkout (pinned commit, see setup.sh) so
       # reruns don't re-clone+build it from scratch every time.
