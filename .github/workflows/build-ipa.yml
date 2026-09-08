@@ -55,6 +55,7 @@ jobs:
 
       - name: Build (unsigned)
         run: |
+          set -o pipefail
           xcodebuild \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
@@ -69,7 +70,30 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGN_ENTITLEMENTS="" \
             DEVELOPMENT_TEAM="" \
-            clean build
+            clean build 2>&1 | tee xcodebuild.log
+
+      - name: Build diagnostics (on failure)
+        if: failure()
+        run: |
+          {
+            echo "## xcodebuild failed"
+            echo '### error / failure lines'
+            echo '```'
+            grep -nE 'error:|fatal error|The following build commands failed|Command .* failed|ld: |could not|No such|is in a future|cannot be' xcodebuild.log | tail -n 120 || echo '(no matching lines)'
+            echo '```'
+            echo '### last 200 lines'
+            echo '```'
+            tail -n 200 xcodebuild.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
+          if-no-files-found: ignore
 
       - name: Package Payload -> .ipa
         run: |
