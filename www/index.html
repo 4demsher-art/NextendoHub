@@ -51,11 +51,17 @@
   /* ---- stage : one tab visible, fills everything above the taskbar ---- */
   .stage{position:relative; flex:1; min-height:0}
   .tab{position:absolute; inset:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
-       padding:16px 20px 18px;
+       /* vertically centre the content; `safe` falls back to top-aligned
+          (and scrollable) when it's taller than the screen, so nothing is
+          ever clipped out of reach */
+       display:flex; flex-direction:column; align-items:center; justify-content:safe center;
+       /* keep clear of the notch / Dynamic Island up top and the home bar
+          + tab bar down low — this is why parts weren't visible */
+       padding:max(18px, calc(env(safe-area-inset-top) + 12px)) 20px max(20px, calc(env(safe-area-inset-bottom) + 12px));
        padding-left:max(20px, env(safe-area-inset-left));
        padding-right:max(20px, env(safe-area-inset-right))}
   .tab[hidden]{display:none}
-  .wrap{max-width:720px; margin:0 auto}
+  .wrap,.login-wrap{width:100%; max-width:720px; margin:0 auto}
 
   /* tab-change animation (Profile <-> Settings etc). CSS animations replay
      whenever the element goes display:none -> block, so no JS is needed. */
@@ -68,7 +74,7 @@
      unlike transform:scale. */
   @media (max-width:480px){
     .wrap,.login-wrap{zoom:.86; max-width:none}
-    .tab{padding:10px 12px 12px;
+    .tab{padding:max(12px, calc(env(safe-area-inset-top) + 8px)) 12px max(14px, calc(env(safe-area-inset-bottom) + 8px));
          padding-left:max(12px, env(safe-area-inset-left));
          padding-right:max(12px, env(safe-area-inset-right))}
   }
