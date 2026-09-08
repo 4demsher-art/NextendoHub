@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>            <string>NextendoHub</string>
+  <key>CFBundleDisplayName</key>     <string>Nextendo Hub</string>
+  <key>CFBundleIdentifier</key>      <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+  <key>CFBundleExecutable</key>      <string>$(EXECUTABLE_NAME)</string>
+  <key>CFBundlePackageType</key>     <string>APPL</string>
+  <key>CFBundleShortVersionString</key> <string>$(MARKETING_VERSION)</string>
+  <key>CFBundleVersion</key>         <string>$(CURRENT_PROJECT_VERSION)</string>
+  <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
+  <key>LSRequiresIPhoneOS</key>      <true/>
+  <key>MinimumOSVersion</key>       <string>16.0</string>
+
+  <key>UIDeviceFamily</key>
+  <array><integer>1</integer><integer>2</integer></array>
+  <key>UIRequiredDeviceCapabilities</key>
+  <array><string>arm64</string></array>
+
+  <key>UILaunchScreen</key>
+  <dict>
+    <key>UIColorName</key><string>LaunchBackground</string>
+  </dict>
+
+  <key>UISupportedInterfaceOrientations</key>
+  <array>
+    <string>UIInterfaceOrientationPortrait</string>
+    <string>UIInterfaceOrientationLandscapeLeft</string>
+    <string>UIInterfaceOrientationLandscapeRight</string>
+  </array>
+  <key>UISupportedInterfaceOrientations~ipad</key>
+  <array>
+    <string>UIInterfaceOrientationPortrait</string>
+    <string>UIInterfaceOrientationPortraitUpsideDown</string>
+    <string>UIInterfaceOrientationLandscapeLeft</string>
+    <string>UIInterfaceOrientationLandscapeRight</string>
+  </array>
+
+  <!-- All traffic goes to these HTTPS hosts only. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsArbitraryLoads</key><false/>
+    <key>NSExceptionDomains</key>
+    <dict>
+      <key>nextendo.network</key>
+      <dict>
+        <key>NSIncludesSubdomains</key><true/>
+        <key>NSExceptionRequiresForwardSecrecy</key><false/>
+      </dict>
+      <key>flagcdn.com</key>
+      <dict><key>NSExceptionRequiresForwardSecrecy</key><false/></dict>
+    </dict>
+  </dict>
+
+  <key>UIStatusBarStyle</key><string>UIStatusBarStyleLightContent</string>
+  <key>UIViewControllerBasedStatusBarAppearance</key><false/>
+</dict>
+</plist>

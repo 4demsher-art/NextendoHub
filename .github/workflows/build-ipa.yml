@@ -1,0 +1,103 @@
+# Builds an UNSIGNED NextendoHub.ipa on GitHub's macOS runners.
+#
+# No Apple Developer account, certificates or provisioning profiles are needed:
+# the app is compiled with code signing disabled and then hand-packaged into a
+# Payload/ .ipa. That is exactly the shape a sideloader wants — install it with
+# TrollStore, or (re)sign it yourself with AltStore / Sideloadly / Xcode /
+# `zsign` before installing on a normal device.
+#
+# Run it now:  Actions tab -> "Build IPA" -> "Run workflow".
+# Tag a release:  git tag ios-v1.0.0 && git push --tags   (attaches the .ipa)
+
+name: Build IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    tags:
+      - "ios-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    env:
+      SCHEME: NextendoHub
+      PROJECT: NextendoHub.xcodeproj
+      CONFIGURATION: Release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          sudo xcode-select -p
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            ONLY_ACTIVE_ARCH=NO \
+            ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
+            clean build
+
+      - name: Package Payload -> .ipa
+        run: |
+          APP_DIR="build/Build/Products/${CONFIGURATION}-iphoneos/${SCHEME}.app"
+          if [ ! -d "$APP_DIR" ]; then
+            echo "::error::$APP_DIR was not produced — build failed"
+            find build/Build/Products -maxdepth 3 -name '*.app' -print || true
+            exit 1
+          fi
+          rm -rf payload_stage
+          mkdir -p payload_stage/Payload
+          cp -R "$APP_DIR" "payload_stage/Payload/"
+          # strip any signature the SDK may have stamped, so it's cleanly unsigned
+          rm -rf "payload_stage/Payload/${SCHEME}.app/_CodeSignature" || true
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_DIR/Info.plist" 2>/dev/null || echo 0.0.0)
+          BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_DIR/Info.plist" 2>/dev/null || echo 0)
+          IPA="NextendoHub-${VERSION}-${BUILD}-unsigned.ipa"
+          ( cd payload_stage && zip -qry "../$IPA" Payload )
+          echo "IPA_NAME=$IPA" >> "$GITHUB_ENV"
+          ls -lh "$IPA"
+          unzip -l "$IPA" | head -n 20
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NextendoHub-ipa
+          path: ${{ env.IPA_NAME }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/ios-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.IPA_NAME }}
+          fail_on_unmatched_files: true
+          body: |
+            Unsigned build. Install with TrollStore, or re-sign with
+            AltStore / Sideloadly / `zsign` first.

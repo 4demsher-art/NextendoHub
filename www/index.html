@@ -1,0 +1,1281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; img-src 'self' data: https://flagcdn.com https://nextendo.network; connect-src 'none'">
+<title>Nextendo Hub</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Manrope:wght@400;500;600;700&family=Chivo+Mono:wght@500;700&display=swap">
+<style>
+  /* light palette (default) */
+  :root{
+    --grad-a:#ff2e97; --grad-b:#7b2ff7;
+    --ground:#f4f0fa; --raise:#ffffff; --sink:#e9e2f3;
+    --ink:#1b1426; --ink-dim:#5a5270; --ink-mute:#8a8199;
+    --glass:rgba(255,255,255,.66); --glass-line:rgba(27,20,38,.12);
+    --hair:rgba(27,20,38,.09);
+    --accent:#d6197d; --accent-ink:#ffffff;
+    --up:#12a150; --down:#d92f4a; --pending:#b26a00; --maint:#2f74d0;
+    --online:#12a150; --ingame:#2f74d0; --danger:#d92f4a; --warn:#b26a00;
+    --field:#ffffff; --field-line:rgba(27,20,38,.18);
+    --wash:.14;
+    --font-ui:"Manrope",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --font-dis:"Bricolage Grotesque",var(--font-ui);
+    --font-mono:"Chivo Mono",ui-monospace,Consolas,monospace;
+  }
+  :root[data-theme="dark"]{
+    --ground:#0e0a15; --raise:#171021; --sink:#120c1c;
+    --ink:#f4eefb; --ink-dim:#b9aecd; --ink-mute:#7b7091;
+    --glass:rgba(255,255,255,.055); --glass-line:rgba(255,255,255,.14);
+    --hair:rgba(255,255,255,.10);
+    --accent:#ff3ea5; --accent-ink:#1a0a12;
+    --up:#38d98a; --down:#ff6b83; --pending:#ffb020; --maint:#5aa9ff;
+    --online:#38d98a; --ingame:#5aa9ff; --danger:#ff6b83; --warn:#ffb020;
+    --field:rgba(255,255,255,.05); --field-line:rgba(255,255,255,.16);
+    --wash:.22;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:var(--font-ui); color:var(--ink);
+    background:
+      radial-gradient(700px 440px at 6% -10%, color-mix(in srgb,var(--grad-a) calc(var(--wash)*100%),transparent), transparent 60%),
+      radial-gradient(760px 560px at 114% 8%, color-mix(in srgb,var(--grad-b) calc(var(--wash)*100%),transparent), transparent 55%),
+      var(--ground);
+    -webkit-font-smoothing:antialiased;
+    display:flex; flex-direction:column; height:100%;
+  }
+
+  /* ---- stage : one tab visible, fills everything above the taskbar ---- */
+  .stage{position:relative; flex:1; min-height:0}
+  .tab{position:absolute; inset:0; overflow-y:auto; padding:20px 24px 26px}
+  .tab[hidden]{display:none}
+  .wrap{max-width:720px; margin:0 auto}
+
+  .sechead{display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin:0 2px 12px}
+  .sechead h1{font-family:var(--font-dis); font-weight:800; letter-spacing:-.02em; font-size:22px; margin:0}
+  .tag{
+    display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; white-space:nowrap;
+    padding:3px 9px; border-radius:999px; background:var(--glass); border:1px solid var(--glass-line); color:var(--ink-dim);
+  }
+  .tag.live{color:var(--up); border-color:color-mix(in srgb,var(--up) 40%,transparent)}
+  .tag.warn{color:var(--pending); border-color:color-mix(in srgb,var(--pending) 40%,transparent)}
+  .tag .pulse{width:7px;height:7px;border-radius:50%;background:currentColor; animation:pulse 2s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,currentColor 55%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+  @media (prefers-reduced-motion:reduce){.pulse,.dot.game{animation:none}}
+
+  .card{background:var(--glass); border:1px solid var(--glass-line); border-radius:18px; padding:14px 16px}
+  .card + .card{margin-top:12px}
+  .eyebrow{font-size:10.5px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-mute); margin:20px 2px 8px}
+  .muted{color:var(--ink-dim); font-size:12.5px; line-height:1.55}
+
+  /* ---- server status ---- */
+  .banner{
+    display:flex; align-items:center; gap:11px; padding:13px 15px; border-radius:16px; margin-bottom:12px;
+    background:color-mix(in srgb,var(--up) 12%,transparent); border:1px solid color-mix(in srgb,var(--up) 34%,transparent);
+  }
+  .banner.bad{background:color-mix(in srgb,var(--down) 13%,transparent); border-color:color-mix(in srgb,var(--down) 38%,transparent)}
+  .banner .big{font-family:var(--font-dis); font-weight:800; font-size:15px; letter-spacing:-.01em}
+  .banner .sub{font-size:11.5px; color:var(--ink-dim); margin-top:1px}
+  .banner .ico{width:22px;height:22px;flex:none;color:var(--up)}
+  .banner.bad .ico{color:var(--down)}
+  .grp{margin-top:12px}
+  .grp:first-child{margin-top:2px}
+  .grp > .gname{font-size:10.5px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-mute); margin:0 2px 6px}
+  .mon{display:flex; align-items:center; gap:10px; padding:8px 2px; border-bottom:1px solid var(--hair)}
+  .mon:last-child{border-bottom:0}
+  .mon .dot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--ink-mute)}
+  .mon .dot.up{background:var(--up); box-shadow:0 0 0 3px color-mix(in srgb,var(--up) 22%,transparent)}
+  .mon .dot.down{background:var(--down); box-shadow:0 0 0 3px color-mix(in srgb,var(--down) 22%,transparent)}
+  .mon .dot.pending{background:var(--pending)} .mon .dot.maint{background:var(--maint)}
+  .mon .nm{flex:1; min-width:0; font-size:13px; font-weight:600; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .mon .meta{font-family:var(--font-mono); font-size:11px; color:var(--ink-mute); white-space:nowrap}
+  .mon.isdown .nm{color:var(--down)}
+  .incident{margin-top:10px; padding:10px 12px; border-radius:12px; font-size:12px; line-height:1.5; color:var(--ink-dim);
+    background:color-mix(in srgb,var(--pending) 12%,transparent); border:1px solid color-mix(in srgb,var(--pending) 30%,transparent)}
+  .incident b{color:var(--ink)}
+
+  /* ---- online ---- */
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:4px}
+  .tile{background:var(--glass); border:1px solid var(--glass-line); border-radius:18px; padding:14px}
+  .tile .k{font-family:var(--font-dis); font-weight:800; font-size:28px; letter-spacing:-.03em}
+  .tile .l{font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-mute); margin-top:2px}
+  .plist{display:flex; flex-direction:column; gap:10px}
+  .p .row{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px; gap:10px}
+  .p .row .g{font-weight:700; font-size:13.5px; letter-spacing:-.01em}
+  .p .row .c{font-family:var(--font-mono); font-weight:700; font-size:12px; color:var(--ink); white-space:nowrap}
+  .p .row .c .u{color:var(--ink-mute); font-weight:500}
+  .meter{height:9px;border-radius:999px;background:var(--sink);overflow:hidden;border:1px solid var(--hair)}
+  .meter i{display:block;height:100%;background:linear-gradient(90deg,var(--grad-a),var(--grad-b)); transition:width .5s cubic-bezier(.2,.7,.2,1); width:0}
+  @media (prefers-reduced-motion:reduce){.meter i{transition:none}}
+  .p.idle .g,.p.idle .c{color:var(--ink-mute)}
+
+  /* ---- friends ---- */
+  .login-wrap{min-height:100%; display:grid; place-items:center}
+  .login{width:min(400px,94%); background:var(--glass); border:1px solid var(--glass-line); border-radius:22px; padding:26px}
+  .login h1{font-family:var(--font-dis); font-weight:800; font-size:22px; letter-spacing:-.02em; margin:2px 0 4px}
+  label{display:block; font-size:12px; font-weight:700; color:var(--ink-dim); margin:14px 0 6px}
+  .input{width:100%; font:inherit; font-size:15px; color:var(--ink); background:var(--field); border:1px solid var(--field-line); border-radius:13px; padding:12px 13px}
+  .input:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+  .btn{all:unset; cursor:pointer; text-align:center; display:block; width:100%; background:var(--accent); color:var(--accent-ink);
+    font-weight:800; font-size:15px; padding:13px 16px; border-radius:14px; margin-top:20px}
+  .btn[disabled]{opacity:.55; cursor:default}
+  .btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  .msg{margin-top:14px; font-size:13px; line-height:1.5; min-height:1em}
+  .msg.err{color:var(--danger)} .msg.ok{color:var(--online)}
+  .fineprint{margin-top:16px; font-size:11px; line-height:1.55; color:var(--ink-mute)}
+  .fineprint code{font-family:var(--font-mono)}
+
+  .id{display:flex; align-items:center; gap:11px; margin-bottom:14px}
+  .id .pic{width:44px;height:44px;border-radius:50%;flex:none;overflow:hidden; background:linear-gradient(150deg,var(--grad-a),var(--grad-b));
+    display:grid;place-items:center;color:#fff;font-family:var(--font-dis);font-weight:800;font-size:16px}
+  .id .pic img{width:100%;height:100%;object-fit:cover;display:block}
+  .id .u{font-family:var(--font-dis); font-weight:800; font-size:16px; letter-spacing:-.01em}
+  .id .fc{font-family:var(--font-mono); font-size:12px; color:var(--ink-dim); display:flex; align-items:center; gap:6px}
+  .id .fc button{all:unset; cursor:pointer; color:var(--ink-mute)} .id .fc button:hover{color:var(--ink)}
+  .id .sp{flex:1}
+  .btn.sm{all:unset; cursor:pointer; font-size:12.5px; font-weight:700; color:var(--ink-dim); padding:7px 12px; border-radius:10px;
+    border:1px solid var(--field-line); background:var(--field)}
+  .btn.sm:hover{color:var(--ink)}
+  .tally{display:flex; gap:8px; margin:0 2px 14px}
+  .tally .chip{font-size:11.5px; font-weight:700; padding:5px 11px; border-radius:999px; background:var(--glass); border:1px solid var(--glass-line); color:var(--ink-dim)}
+  .tally .chip b{color:var(--ink)}
+  .tally .chip.on b{color:var(--online)} .tally .chip.game b{color:var(--ingame)}
+  .addrow{display:flex; gap:8px; margin-bottom:4px}
+  .addrow .input{flex:1; font-family:var(--font-mono); letter-spacing:.06em}
+  .addrow button{all:unset; cursor:pointer; padding:0 16px; border-radius:12px; font-weight:800; font-size:13px; background:var(--accent); color:var(--accent-ink); display:grid; place-items:center}
+  .frow{display:flex; align-items:center; gap:12px; padding:11px 4px; border-bottom:1px solid var(--hair)}
+  .frow:last-child{border-bottom:0}
+  .av{width:40px;height:40px;border-radius:50%;flex:none;overflow:hidden; background:linear-gradient(150deg,var(--grad-a),var(--grad-b));
+    display:grid;place-items:center;color:#fff;font-weight:800;font-family:var(--font-dis);font-size:14px}
+  .av img{width:100%;height:100%;object-fit:cover;display:block}
+  .frow .nm{flex:1; min-width:0}
+  .frow .nm .n{font-weight:700; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .frow .nm .s{font-size:12px; color:var(--ink-dim)}
+  .frow .nm .s.game{color:var(--ingame); font-weight:600}
+  .frow .nm .s.on{color:var(--online)}
+  .frow .fc{font-family:var(--font-mono); font-size:11px; color:var(--ink-mute); white-space:nowrap}
+  .frow .dot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--ink-mute)}
+  .frow .dot.on{background:var(--online); box-shadow:0 0 0 3px color-mix(in srgb,var(--online) 22%,transparent)}
+  .frow .dot.game{background:var(--ingame); box-shadow:0 0 0 3px color-mix(in srgb,var(--ingame) 24%,transparent); animation:pulse 2s infinite}
+  .frow .star{color:var(--warn); font-size:13px}
+  .frow .req{display:flex; gap:6px}
+  .frow .req button{all:unset; cursor:pointer; font-size:12px; font-weight:800; padding:6px 11px; border-radius:9px}
+  .frow .req .ok{background:var(--accent); color:var(--accent-ink)}
+  .frow .req .no{background:var(--field); color:var(--ink-dim); border:1px solid var(--field-line)}
+  .empty{color:var(--ink-dim); font-size:13px; padding:16px 6px; line-height:1.6}
+  .banner-err{margin:0 0 14px; padding:11px 13px; border-radius:12px; font-size:12.5px; line-height:1.5;
+    background:color-mix(in srgb,var(--danger) 12%,transparent); border:1px solid color-mix(in srgb,var(--danger) 32%,transparent); color:var(--danger)}
+
+  /* ---- settings ---- */
+  .srow{margin-top:16px}
+  .srow:first-of-type{margin-top:4px}
+  .srow > span{display:block; font-size:12px; font-weight:700; color:var(--ink-dim); margin-bottom:7px}
+  .seg{display:flex; gap:3px; padding:3px; border-radius:12px; background:var(--sink); border:1px solid var(--hair); max-width:360px}
+  .seg button{all:unset; cursor:pointer; flex:1; text-align:center; padding:9px 6px; font-size:12.5px; font-weight:700; border-radius:9px; color:var(--ink-dim)}
+  .seg button[aria-pressed="true"]{background:var(--accent); color:var(--accent-ink)}
+  .seg button:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+
+  /* ---- taskbar ---- */
+  .taskbar{
+    flex:none; display:flex; border-top:1px solid var(--glass-line);
+    background:var(--raise); padding:6px 8px; gap:4px;
+  }
+  .taskbar button{
+    all:unset; cursor:pointer; flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
+    padding:8px 4px; border-radius:12px; color:var(--ink-mute); font-size:11px; font-weight:700; letter-spacing:.02em;
+  }
+  .taskbar button svg{width:22px;height:22px}
+  .taskbar button:hover{color:var(--ink-dim)}
+  .taskbar button[aria-current="page"]{color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,transparent)}
+  .taskbar button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+  .taskbar .badge{
+    position:absolute; transform:translate(14px,-8px);
+    background:var(--down); color:#fff; font-size:9px; font-weight:800; min-width:15px; height:15px;
+    border-radius:999px; display:grid; place-items:center; padding:0 3px;
+  }
+
+  /* ---- account settings ---- */
+  .prow{display:flex; gap:14px; align-items:center}
+  .prow .grow{flex:1; min-width:0}
+  .prow .pic{width:56px;height:56px;border-radius:50%;flex:none;overflow:hidden; background:linear-gradient(150deg,var(--grad-a),var(--grad-b));
+    display:grid;place-items:center;color:#fff;font-family:var(--font-dis);font-weight:800;font-size:20px}
+  .prow .pic img{width:100%;height:100%;object-fit:cover;display:block}
+  .tiny{font-size:11px}
+  .ucount{font-family:var(--font-mono); font-weight:500; font-size:10.5px; color:var(--ink-mute); margin-left:6px; letter-spacing:0}
+  .ucount.full{color:var(--warn)}
+  .ucount.bad{color:var(--danger)}
+  .avatar-grid{
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(64px,1fr)); gap:8px;
+    max-height:320px; overflow-y:auto; padding:4px; border-radius:12px; background:var(--sink); border:1px solid var(--hair);
+  }
+  .avatar-grid button{
+    all:unset; box-sizing:border-box; cursor:pointer; aspect-ratio:1; border-radius:12px; overflow:hidden;
+    background:var(--field); box-shadow:0 0 0 1px var(--glass-line); position:relative;
+  }
+  .avatar-grid button:hover{box-shadow:0 0 0 2px var(--accent)}
+  .avatar-grid button[aria-pressed="true"]{box-shadow:0 0 0 3px var(--accent)}
+  .avatar-grid img{width:100%;height:100%;object-fit:cover;display:block}
+  .swatches{display:flex; flex-wrap:wrap; gap:6px; margin-top:10px}
+  .swatches button{all:unset; cursor:pointer; width:22px;height:22px;border-radius:7px; box-shadow:0 0 0 1px var(--glass-line)}
+  .swatches button[aria-pressed="true"]{box-shadow:0 0 0 2px var(--ink)}
+  .frow2{display:flex; gap:8px; align-items:center}
+  .frow2 .input{flex:1; min-width:0}
+  select.input{appearance:auto}
+  .flag{width:26px;height:18px;flex:none;border-radius:3px;background:var(--sink);display:inline-block;overflow:hidden}
+  .flag img{width:100%;height:100%;object-fit:cover;display:block}
+  .quota{margin-bottom:12px}
+  .quota-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:12px}
+  .srow2{display:flex; align-items:center; gap:10px; padding:9px 2px; border-bottom:1px solid var(--hair)}
+  .srow2:last-child{border-bottom:0}
+  .srow2 .nm{flex:1; min-width:0}
+  .srow2 .nm .n{font-weight:700; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .srow2 .nm .s{font-size:11px; color:var(--ink-mute); font-family:var(--font-mono)}
+  .srow2 .act{display:flex; gap:6px}
+  .srow2 .act button{all:unset; box-sizing:border-box; cursor:pointer; font-size:11.5px; font-weight:800; padding:6px 10px; border-radius:9px; background:var(--field); border:1px solid var(--field-line); color:var(--ink-dim)}
+  .srow2 .act button.del{color:var(--danger); border-color:color-mix(in srgb,var(--danger) 34%,transparent)}
+  .srow2 .act button:hover{color:var(--ink)}
+
+  /* `all:unset` above wipes box-sizing back to content-box; restore it so
+     width:100% + padding buttons don't overflow their container. */
+  .btn,.btn.sm,.seg button,.taskbar button,.addrow button,.frow .req button,.id .fc button{box-sizing:border-box}
+
+  [hidden]{display:none !important}
+</style>
+</head>
+<body>
+
+  <div class="stage">
+
+    <!-- ============ SERVERS ============ -->
+    <section class="tab" id="tab-servers">
+      <div class="wrap">
+        <div class="sechead">
+          <h1 data-i18n="status_title">Server status</h1>
+          <span class="tag" id="st-tag"><span class="pulse"></span><span id="st-tagtext"></span></span>
+        </div>
+        <div id="st-body"></div>
+      </div>
+    </section>
+
+    <!-- ============ ONLINE ============ -->
+    <section class="tab" id="tab-online" hidden>
+      <div class="wrap">
+        <div class="sechead">
+          <h1 data-i18n="online_title">In game right now</h1>
+          <span class="tag" id="on-tag"><span class="pulse"></span><span id="on-tagtext"></span></span>
+        </div>
+        <div class="grid2">
+          <div class="tile"><div class="k" id="on-total">—</div><div class="l" data-i18n="players_online">players online</div></div>
+          <div class="tile"><div class="k" id="on-active">—</div><div class="l" id="on-active-l">games active</div></div>
+        </div>
+        <div class="eyebrow" data-i18n="online_title">In game right now</div>
+        <div class="card"><div class="plist" id="on-list"></div></div>
+        <p class="muted" id="on-note" style="margin-top:10px"></p>
+      </div>
+    </section>
+
+    <!-- ============ FRIENDS ============ -->
+    <section class="tab" id="tab-friends" hidden>
+      <!-- login -->
+      <div class="login-wrap" id="fr-login">
+        <form class="login" id="login-form">
+          <h1 id="login-title" data-i18n="sign_in">Sign in</h1>
+          <p class="muted" id="login-lede" data-i18n="login_lede">Log in with your Nextendo Network account to load your profile and friends.</p>
+          <button class="btn sm" id="login-cancel" type="button" hidden style="width:auto;margin:0 0 6px" data-i18n="cancel">Cancel</button>
+
+          <div id="reg-username-row" hidden>
+            <label for="reg-username"><span data-i18n="username_label">Username</span> <span class="ucount" id="reg-uname-count">0 / 16</span></label>
+            <input class="input" id="reg-username" maxlength="16" spellcheck="false" autocomplete="off" placeholder="Inkling_Pro">
+            <div class="msg" id="reg-username-msg" style="margin-top:6px"></div>
+          </div>
+
+          <label for="email" data-i18n="email">Email address</label>
+          <input class="input" id="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required>
+
+          <label for="password" data-i18n="password">Password</label>
+          <input class="input" id="password" type="password" autocomplete="current-password" placeholder="••••••••" required>
+
+          <div id="reg-extra" hidden>
+            <label for="password2" data-i18n="password_again">Confirm password</label>
+            <input class="input" id="password2" type="password" autocomplete="new-password" placeholder="••••••••">
+            <label for="reg-country" data-i18n="country_label">Country (Mario Kart flag)</label>
+            <select class="input" id="reg-country"></select>
+            <p class="muted tiny" style="margin-top:8px" data-i18n="pw_rules">At least 8 characters, one digit and one special character.</p>
+          </div>
+
+          <button class="btn" id="login-btn" type="submit" data-i18n="sign_in">Sign in</button>
+          <button class="btn sm" id="mode-toggle" type="button" style="width:100%;margin-top:8px" data-i18n="create_account">Create account</button>
+          <div class="msg" id="login-msg"></div>
+          <p class="fineprint" data-i18n-html="fineprint"></p>
+        </form>
+      </div>
+      <!-- signed in -->
+      <div class="wrap" id="fr-app" hidden>
+        <div class="id">
+          <div class="pic" id="my-pic">?</div>
+          <div>
+            <div class="u" id="my-name">—</div>
+            <div class="fc" id="my-fc"></div>
+          </div>
+          <span class="sp"></span>
+          <select class="input" id="acct-sel" hidden style="width:auto;padding:7px 10px;font-size:12.5px"></select>
+          <button class="btn sm" id="addacct-btn" type="button" data-i18n="add_account">Add account</button>
+          <button class="btn sm" id="refresh-btn" type="button" data-i18n="refresh">Refresh</button>
+          <button class="btn sm" id="logout-btn" type="button" data-i18n="log_out">Log out</button>
+        </div>
+        <div class="banner-err" id="fr-banner" hidden></div>
+        <div class="tally" id="fr-tally"></div>
+        <div class="addrow">
+          <input class="input" id="add-code" placeholder="SW-1234-5678-9012" maxlength="20">
+          <button id="add-btn" type="button" data-i18n="add">Add</button>
+        </div>
+        <div class="msg" id="add-msg" style="margin:2px 2px 0"></div>
+
+        <div id="fr-requests-sec" hidden>
+          <div class="eyebrow" data-i18n="friend_requests">Friend requests</div>
+          <div class="card" id="fr-rlist"></div>
+        </div>
+        <div class="eyebrow" data-i18n="friends">Friends</div>
+        <div class="card" id="fr-flist"><div class="empty">…</div></div>
+      </div>
+    </section>
+
+    <!-- ============ SETTINGS ============ -->
+    <section class="tab" id="tab-settings" hidden>
+      <div class="wrap">
+        <div class="sechead"><h1 data-i18n="settings">Settings</h1></div>
+        <div class="card">
+          <div class="srow">
+            <span data-i18n="theme_label">Theme</span>
+            <div class="seg" id="seg-theme">
+              <button data-theme="system" data-i18n="theme_system">System</button>
+              <button data-theme="light" data-i18n="theme_light">Light</button>
+              <button data-theme="dark" data-i18n="theme_dark">Dark</button>
+            </div>
+          </div>
+          <div class="srow">
+            <span data-i18n="lang_label">Language</span>
+            <div class="seg" id="seg-lang">
+              <button data-lang="en">English</button>
+              <button data-lang="fr">Français</button>
+              <button data-lang="es">Español</button>
+            </div>
+          </div>
+          <div class="srow">
+            <span data-i18n="startup_label">Launch at startup</span>
+            <div class="seg" id="seg-startup">
+              <button data-startup="0" aria-pressed="true" data-i18n="startup_off">Off</button>
+              <button data-startup="1" aria-pressed="false" data-i18n="startup_on">On</button>
+            </div>
+            <p class="muted tiny" style="margin-top:7px" data-i18n="startup_hint">Opens to the tray when Windows starts.</p>
+          </div>
+        </div>
+
+        <div id="acct-locked" class="card" style="margin-top:14px" hidden>
+          <p class="muted" data-i18n="acct_locked">Sign in on the Friends tab to edit your profile, country and cloud saves.</p>
+        </div>
+
+        <div id="acct" hidden>
+          <div class="eyebrow" data-i18n="acct_profile">Profile</div>
+          <div class="card">
+            <div class="prow">
+              <div class="pic" id="acct-pic">?</div>
+              <div class="grow">
+                <input type="file" id="pic-file" accept="image/*" hidden>
+                <button class="btn sm" id="pic-btn" type="button" data-i18n="change_picture">Change picture</button>
+                <button class="btn sm" id="gallery-btn" type="button" data-i18n="gallery_btn">Choose from gallery</button>
+                <div class="swatches" id="swatches"></div>
+              </div>
+            </div>
+            <div class="msg" id="profile-msg"></div>
+            <div id="gallery" hidden>
+              <div class="seg" id="gallery-tabs" style="margin:12px 0 10px; max-width:320px">
+                <button data-g="firmware" aria-pressed="true" data-i18n="gallery_switch">Switch</button>
+                <button data-g="custom" aria-pressed="false" data-i18n="gallery_custom">Custom</button>
+              </div>
+              <div class="avatar-grid" id="avatar-grid"></div>
+              <div class="muted tiny" id="gallery-count" style="margin-top:8px"></div>
+            </div>
+          </div>
+
+          <div class="eyebrow"><span data-i18n="username_label">Username</span> <span class="ucount" id="uname-count">0 / 16</span></div>
+          <div class="card">
+            <div class="frow2">
+              <input class="input" id="uname" maxlength="16" spellcheck="false" autocomplete="off">
+              <button class="btn sm" id="uname-btn" type="button" data-i18n="save">Save</button>
+            </div>
+            <div class="msg" id="uname-msg"></div>
+            <div class="muted tiny" style="margin-top:6px" data-i18n="uname_rule">3–16 characters · letters, digits, _ or -</div>
+          </div>
+
+          <div class="eyebrow" data-i18n="country_label">Country (Mario Kart flag)</div>
+          <div class="card">
+            <div class="frow2">
+              <span class="flag" id="country-flag" aria-hidden="true"></span>
+              <select class="input" id="country-sel"></select>
+            </div>
+            <div class="msg" id="country-msg"></div>
+          </div>
+
+          <div class="eyebrow" data-i18n="saves_label">Cloud saves</div>
+          <div class="card">
+            <div id="saves-quota" class="quota" hidden>
+              <div class="quota-head"><span id="saves-used" class="muted"></span><span id="saves-badge" class="chip" hidden>Booster</span></div>
+              <div class="meter"><i id="saves-fill" style="width:0%"></i></div>
+            </div>
+            <div id="saves-list"><div class="empty">…</div></div>
+          </div>
+
+          <div class="eyebrow" data-i18n="mods_label">Favourite mods</div>
+          <div class="card"><div id="mods-list"><div class="empty">…</div></div></div>
+        </div>
+
+        <p class="muted" style="margin-top:16px" data-i18n="about_line">
+          Nextendo Hub — server status &amp; online counts from status.nextendo.network and nextendo.network/api/online-counts;
+          friends from your account. Unofficial client.
+        </p>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ============ TASKBAR ============ -->
+  <nav class="taskbar" id="taskbar">
+    <button data-tab="friends" aria-current="page">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c.8-4.1 3.7-6.2 7.5-6.2s6.7 2.1 7.5 6.2"/></svg>
+      <span data-i18n="tab_profile">Profile</span>
+    </button>
+    <button data-tab="online">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6.5" width="19" height="11" rx="4"/><path d="M7 10v3M5.5 11.5h3"/><circle cx="16" cy="11" r="1"/><circle cx="18.5" cy="13.5" r="1"/></svg>
+      <span data-i18n="tab_online">Online</span>
+    </button>
+    <button data-tab="servers">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/></svg>
+      <span data-i18n="tab_servers">Status</span>
+    </button>
+    <button data-tab="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5 5l2.1 2.1M16.9 16.9 19 19M19 5l-2.1 2.1M7.1 16.9 5 19"/></svg>
+      <span data-i18n="tab_settings">Settings</span>
+    </button>
+  </nav>
+
+<script src="bridge-shim.js"></script>
+<script>
+"use strict";
+var ONLINE_MS = 15000, STATUS_MS = 60000, FRIENDS_MS = 45000;
+
+/* ------------------------------------------------ i18n */
+var I18N = {
+  en: {
+    tab_servers:"Status", tab_online:"Online", tab_friends:"Friends", tab_profile:"Profile", tab_settings:"Settings",
+    status_title:"Server status", online_title:"In game right now", players_online:"players online",
+    games_active:"games active",
+    connecting:"connecting…", live:"live", offline:"offline", unreachable:"unreachable — retrying…",
+    all_ok:"All systems operational", down_one:"{n} service down", down_many:"{n} services down",
+    status_sub:"{up} / {total} online · updated {time}", offline_paren:"(offline)",
+    st_1:"operational", st_0:"down", st_2:"pending", st_3:"maintenance", st_unknown:"unknown",
+    online_note:"Real figures, live from nextendo.network/api/online-counts, self-updating every 15s.",
+    player_one:"player", player_many:"players", no_data:"No data yet.",
+    settings:"Settings", theme_label:"Theme", theme_system:"System", theme_light:"Light", theme_dark:"Dark",
+    lang_label:"Language", startup_label:"Launch at startup", startup_on:"On", startup_off:"Off", startup_hint:"Opens to the tray when Windows starts.",
+    about_line:"Nextendo Hub — server status & online counts from status.nextendo.network and nextendo.network/api/online-counts; friends from your account. Unofficial client.",
+    sign_in:"Sign in", email:"Email address", password:"Password",
+    login_lede:"Log in with your Nextendo Network account to load your profile and friends.",
+    fineprint:'Your email and password are sent once to <code>nextendo.network/api/login</code> and are not saved. Only the session token is kept on this PC (encrypted). Unofficial client.',
+    friends:"Friends", friend_requests:"Friend requests", add:"Add", refresh:"Refresh", log_out:"Log out",
+    playing:"Playing", online_word:"Online", offline_word:"Offline", wants_to_add:"wants to add you",
+    accept:"Accept", decline:"Decline",
+    tally_friends:"Friends", tally_online:"Online", tally_ingame:"In game",
+    no_friends:"No friends yet. Add one by friend code above.",
+    could_not_load:"Could not load friends.", session_expired:"Session expired — sign in again",
+    request_sent:"Request sent.", failed:"Failed.", sending:"Sending…", signing_in:"Signing in…", login_failed:"Login failed.", add_account:"Add account", cancel:"Cancel", switch_hint:"Switch account", create_account:"Create account", back_to_signin:"Back to sign in", register_lede:"Create a new Nextendo Network account.", password_again:"Confirm password", pw_rules:"At least 8 characters, one digit and one special character.", pw_mismatch:"Passwords don’t match.", account_created:"Account created.", creating:"Creating…",
+    acct_locked:"Sign in on the Friends tab to edit your profile, country and cloud saves.",
+    acct_profile:"Profile", change_picture:"Upload photo", save:"Save", saved:"Saved.",
+    gallery_btn:"Choose from gallery", gallery_switch:"Switch", gallery_custom:"Custom", gallery_count:"{n} avatars · loaded from nextendo.network",
+    username_label:"Username", uname_bad:"3–16 characters: letters, digits, _ or -.", uname_rule:"3–16 characters · letters, digits, _ or -", uname_taken:"That username is taken.", uname_free:"Available.",
+    country_label:"Country (Mario Kart flag)", country_none:"Not set",
+    saves_label:"Cloud saves", saves_none:"No cloud saves.",
+    saves_gate_email:"Verify your email to enable cloud saves.", saves_gate_discord:"Link your Discord account to enable cloud saves.",
+    save_download:"Download", save_delete:"Delete", save_deleted:"Deleted.", save_downloaded:"Saved to disk.", save_confirm:"Delete the cloud save for {g}? This is permanent.",
+    mods_label:"Favourite mods", mods_none:"No favourite mods.", mods_unavailable:"Favourite mods aren’t available through this API."
+  },
+  fr: {
+    tab_servers:"État", tab_online:"En ligne", tab_friends:"Amis", tab_profile:"Profil", tab_settings:"Réglages",
+    status_title:"État des serveurs", online_title:"En jeu maintenant", players_online:"joueurs en ligne",
+    games_active:"jeux actifs",
+    connecting:"connexion…", live:"en direct", offline:"hors ligne", unreachable:"injoignable — nouvel essai…",
+    all_ok:"Tous les services sont opérationnels", down_one:"{n} service en panne", down_many:"{n} services en panne",
+    status_sub:"{up} / {total} en ligne · relevé {time}", offline_paren:"(hors ligne)",
+    st_1:"opérationnel", st_0:"hors service", st_2:"en attente", st_3:"maintenance", st_unknown:"inconnu",
+    online_note:"Chiffres réels, en direct de nextendo.network/api/online-counts, rafraîchis toutes les 15 s.",
+    player_one:"joueur", player_many:"joueurs", no_data:"Aucune donnée pour l’instant.",
+    settings:"Réglages", theme_label:"Thème", theme_system:"Système", theme_light:"Clair", theme_dark:"Sombre",
+    lang_label:"Langue", startup_label:"Lancer au démarrage", startup_on:"Activé", startup_off:"Désactivé", startup_hint:"S’ouvre dans la zone de notification au démarrage de Windows.",
+    about_line:"Nextendo Hub — état des serveurs et joueurs en ligne depuis status.nextendo.network et nextendo.network/api/online-counts ; amis depuis ton compte. Client non officiel.",
+    sign_in:"Se connecter", email:"Adresse e-mail", password:"Mot de passe",
+    login_lede:"Connecte-toi avec ton compte Nextendo Network pour charger ton profil et tes amis.",
+    fineprint:'Ton e-mail et ton mot de passe sont envoyés une fois à <code>nextendo.network/api/login</code> et ne sont pas conservés. Seul le jeton de session reste sur ce PC (chiffré). Client non officiel.',
+    friends:"Amis", friend_requests:"Demandes d’ami", add:"Ajouter", refresh:"Actualiser", log_out:"Se déconnecter",
+    playing:"Joue à", online_word:"En ligne", offline_word:"Hors ligne", wants_to_add:"veut t’ajouter",
+    accept:"Accepter", decline:"Refuser",
+    tally_friends:"Amis", tally_online:"En ligne", tally_ingame:"En jeu",
+    no_friends:"Aucun ami. Ajoute-en un par code ami ci-dessus.",
+    could_not_load:"Impossible de charger les amis.", session_expired:"Session expirée — reconnecte-toi",
+    request_sent:"Demande envoyée.", failed:"Échec.", sending:"Envoi…", signing_in:"Connexion…", login_failed:"Échec de la connexion.", add_account:"Ajouter un compte", cancel:"Annuler", switch_hint:"Changer de compte", create_account:"Créer un compte", back_to_signin:"Retour à la connexion", register_lede:"Crée un nouveau compte Nextendo Network.", password_again:"Confirme le mot de passe", pw_rules:"Au moins 8 caractères, un chiffre et un caractère spécial.", pw_mismatch:"Les mots de passe ne correspondent pas.", account_created:"Compte créé.", creating:"Création…",
+    acct_locked:"Connecte-toi dans l’onglet Amis pour modifier ton profil, ton pays et tes sauvegardes cloud.",
+    acct_profile:"Profil", change_picture:"Importer une photo", save:"Enregistrer", saved:"Enregistré.",
+    gallery_btn:"Choisir dans la galerie", gallery_switch:"Switch", gallery_custom:"Custom", gallery_count:"{n} avatars · chargés depuis nextendo.network",
+    username_label:"Pseudo", uname_bad:"3 à 16 caractères : lettres, chiffres, _ ou -.", uname_rule:"3 à 16 caractères · lettres, chiffres, _ ou -", uname_taken:"Ce pseudo est déjà pris.", uname_free:"Disponible.",
+    country_label:"Pays (drapeau Mario Kart)", country_none:"Non défini",
+    saves_label:"Sauvegardes cloud", saves_none:"Aucune sauvegarde cloud.",
+    saves_gate_email:"Vérifie ton adresse e-mail pour activer les sauvegardes cloud.", saves_gate_discord:"Lie ton compte Discord pour activer les sauvegardes cloud.",
+    save_download:"Télécharger", save_delete:"Supprimer", save_deleted:"Supprimée.", save_downloaded:"Enregistrée sur le disque.", save_confirm:"Supprimer la sauvegarde cloud de {g} ? C’est définitif.",
+    mods_label:"Mods favoris", mods_none:"Aucun mod favori.", mods_unavailable:"Les mods favoris ne sont pas accessibles via cette API."
+  },
+  es: {
+    tab_servers:"Estado", tab_online:"En línea", tab_friends:"Amigos", tab_profile:"Perfil", tab_settings:"Ajustes",
+    status_title:"Estado de los servidores", online_title:"En juego ahora", players_online:"jugadores en línea",
+    games_active:"juegos activos",
+    connecting:"conectando…", live:"en vivo", offline:"sin conexión", unreachable:"no disponible — reintentando…",
+    all_ok:"Todos los servicios operativos", down_one:"{n} servicio caído", down_many:"{n} servicios caídos",
+    status_sub:"{up} / {total} en línea · actualizado {time}", offline_paren:"(sin conexión)",
+    st_1:"operativo", st_0:"caído", st_2:"pendiente", st_3:"mantenimiento", st_unknown:"desconocido",
+    online_note:"Cifras reales, en vivo desde nextendo.network/api/online-counts, se actualizan cada 15 s.",
+    player_one:"jugador", player_many:"jugadores", no_data:"Sin datos por ahora.",
+    settings:"Ajustes", theme_label:"Tema", theme_system:"Sistema", theme_light:"Claro", theme_dark:"Oscuro",
+    lang_label:"Idioma", startup_label:"Abrir al inicio", startup_on:"Sí", startup_off:"No", startup_hint:"Se abre en la bandeja al iniciar Windows.",
+    about_line:"Nextendo Hub — estado de servidores y jugadores en línea desde status.nextendo.network y nextendo.network/api/online-counts; amigos desde tu cuenta. Cliente no oficial.",
+    sign_in:"Iniciar sesión", email:"Correo electrónico", password:"Contraseña",
+    login_lede:"Inicia sesión con tu cuenta de Nextendo Network para cargar tu perfil y amigos.",
+    fineprint:'Tu correo y contraseña se envían una vez a <code>nextendo.network/api/login</code> y no se guardan. Solo el token de sesión se guarda en este PC (cifrado). Cliente no oficial.',
+    friends:"Amigos", friend_requests:"Solicitudes de amistad", add:"Añadir", refresh:"Actualizar", log_out:"Cerrar sesión",
+    playing:"Jugando a", online_word:"En línea", offline_word:"Sin conexión", wants_to_add:"quiere añadirte",
+    accept:"Aceptar", decline:"Rechazar",
+    tally_friends:"Amigos", tally_online:"En línea", tally_ingame:"En juego",
+    no_friends:"Sin amigos todavía. Añade uno por código de amigo arriba.",
+    could_not_load:"No se pudieron cargar los amigos.", session_expired:"Sesión caducada — inicia sesión de nuevo",
+    request_sent:"Solicitud enviada.", failed:"Error.", sending:"Enviando…", signing_in:"Iniciando sesión…", login_failed:"Error al iniciar sesión.", add_account:"Añadir cuenta", cancel:"Cancelar", switch_hint:"Cambiar de cuenta", create_account:"Crear cuenta", back_to_signin:"Volver a iniciar sesión", register_lede:"Crea una cuenta nueva de Nextendo Network.", password_again:"Confirma la contraseña", pw_rules:"Al menos 8 caracteres, un dígito y un carácter especial.", pw_mismatch:"Las contraseñas no coinciden.", account_created:"Cuenta creada.", creating:"Creando…",
+    acct_locked:"Inicia sesión en la pestaña Amigos para editar tu perfil, país y guardados en la nube.",
+    acct_profile:"Perfil", change_picture:"Subir foto", save:"Guardar", saved:"Guardado.",
+    gallery_btn:"Elegir de la galería", gallery_switch:"Switch", gallery_custom:"Custom", gallery_count:"{n} avatares · cargados desde nextendo.network",
+    username_label:"Nombre de usuario", uname_bad:"3 a 16 caracteres: letras, dígitos, _ o -.", uname_rule:"3 a 16 caracteres · letras, dígitos, _ o -", uname_taken:"Ese nombre ya está en uso.", uname_free:"Disponible.",
+    country_label:"País (bandera de Mario Kart)", country_none:"Sin definir",
+    saves_label:"Guardados en la nube", saves_none:"Sin guardados en la nube.",
+    saves_gate_email:"Verifica tu correo para activar los guardados en la nube.", saves_gate_discord:"Vincula tu cuenta de Discord para activar los guardados en la nube.",
+    save_download:"Descargar", save_delete:"Eliminar", save_deleted:"Eliminado.", save_downloaded:"Guardado en disco.", save_confirm:"¿Eliminar el guardado en la nube de {g}? Es permanente.",
+    mods_label:"Mods favoritos", mods_none:"Sin mods favoritos.", mods_unavailable:"Los mods favoritos no están disponibles con esta API."
+  }
+};
+var LOCALE = { en:"en-US", fr:"fr-FR", es:"es-ES" };
+// The app always opens on the Profile tab (no persisted tab).
+var S = { lang:"en", theme:"system", tab:"friends" };
+try {
+  var l = localStorage.getItem("nxhub.lang"); if (I18N[l]) S.lang = l;
+  var th = localStorage.getItem("nxhub.theme"); if (["system","light","dark"].indexOf(th) >= 0) S.theme = th;
+} catch (e) {}
+
+function t(k){ return (I18N[S.lang] && I18N[S.lang][k]) || I18N.en[k] || k; }
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+function hhmm(iso){ try { var d = new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); } catch(e){ return ''; } }
+function nfmt(n){ try { return (n|0).toLocaleString(LOCALE[S.lang]); } catch(e){ return String(n|0); } }
+function initial(n){ return String(n || '?').trim().charAt(0).toUpperCase() || '?'; }
+function fmtCode(c){
+  if (!c) return '';
+  var raw = String(c).toUpperCase().replace(/[^0-9A-Z]/g, '');
+  var digits = raw.replace(/^SW/, '');
+  if (/^\d{12}$/.test(digits)) return 'SW-' + digits.replace(/(\d{4})(\d{4})(\d{4})/, '$1-$2-$3');
+  return String(c);
+}
+function avatarHTML(uri, name){ return uri ? '<img src="' + esc(uri) + '" alt="">' : esc(initial(name)); }
+function setTag(tagEl, textEl, kind, text){ tagEl.className = 'tag' + (kind ? ' ' + kind : ''); textEl.textContent = text; }
+
+/* ------------------------------------------------ theme */
+var mq = window.matchMedia('(prefers-color-scheme: dark)');
+function resolvedTheme(){ return S.theme === 'system' ? (mq.matches ? 'dark' : 'light') : S.theme; }
+function applyTheme(){
+  document.documentElement.setAttribute('data-theme', resolvedTheme());
+  Array.prototype.forEach.call($('seg-theme').children, function(b){ b.setAttribute('aria-pressed', String(b.dataset.theme === S.theme)); });
+}
+mq.addEventListener('change', function(){ if (S.theme === 'system') applyTheme(); });
+
+/* ------------------------------------------------ language */
+function applyLang(){
+  document.documentElement.lang = S.lang;
+  Array.prototype.forEach.call(document.querySelectorAll('[data-i18n]'), function(el){ el.textContent = t(el.dataset.i18n); });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-i18n-html]'), function(el){ el.innerHTML = t(el.dataset.i18nHtml); });
+  $('on-active-l').textContent = t('games_active');
+  $('on-note').textContent = t('online_note');
+  Array.prototype.forEach.call($('seg-lang').children, function(b){ b.setAttribute('aria-pressed', String(b.dataset.lang === S.lang)); });
+  if (lastStatus) renderStatus(lastStatus, statusStale); else statusLoading();
+  if (lastOnline) renderOnline(lastOnline, onlineStale); else onlineLoading();
+  if (frState.me) { paintIdentity(frState.me); if (frState.data) renderFriends(frState.data); }
+  if (typeof authMode !== 'undefined') setAuthMode(authMode);
+  if (typeof acctState !== 'undefined'){
+    try { regionNames = new Intl.DisplayNames([LOCALE[S.lang] || 'en'], { type: 'region' }); } catch(_){}
+    if (acctState.countries) buildCountrySelect();
+  }
+}
+
+/* ------------------------------------------------ tabs */
+function setTab(name){
+  S.tab = name;
+  try { localStorage.setItem('nxhub.tab', name); } catch(_){}
+  ['servers','online','friends','settings'].forEach(function(n){ $('tab-' + n).hidden = n !== name; });
+  Array.prototype.forEach.call($('taskbar').children, function(b){
+    if (b.dataset.tab === name) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  $('tab-' + name).scrollTop = 0;
+  if (name === 'friends') ensureFriends();
+  if (name === 'settings') refreshAccount();
+}
+Array.prototype.forEach.call($('taskbar').children, function(b){
+  b.addEventListener('click', function(){ setTab(b.dataset.tab); });
+});
+$('seg-theme').addEventListener('click', function(e){
+  var b = e.target.closest('button'); if (!b) return;
+  S.theme = b.dataset.theme; try { localStorage.setItem('nxhub.theme', S.theme); } catch(_){}
+  applyTheme();
+});
+$('seg-lang').addEventListener('click', function(e){
+  var b = e.target.closest('button'); if (!b) return;
+  S.lang = b.dataset.lang; try { localStorage.setItem('nxhub.lang', S.lang); } catch(_){}
+  applyLang();
+});
+
+function paintStartup(on){
+  Array.prototype.forEach.call($('seg-startup').children, function(b){
+    b.setAttribute('aria-pressed', String((b.dataset.startup === '1') === !!on));
+  });
+}
+function loadStartup(){
+  if (!(window.nextendo && window.nextendo.startupGet)) return;
+  window.nextendo.startupGet().then(function(r){ paintStartup(r && r.ok && r.enabled); });
+}
+$('seg-startup').addEventListener('click', async function(e){
+  var b = e.target.closest('button'); if (!b) return;
+  var on = b.dataset.startup === '1';
+  paintStartup(on);
+  var r = await window.nextendo.startupSet(on);
+  if (!r || !r.ok) paintStartup(!on);   // revert on failure
+});
+
+/* ------------------------------------------------ SERVERS */
+var lastStatus = null, statusStale = false;
+var STMAP = { 1:'up', 0:'down', 2:'pending', 3:'maint' };
+function statusLoading(){
+  $('st-body').innerHTML = '<div class="card"><div class="empty">' + esc(t('connecting')) + '</div></div>';
+  setTag($('st-tag'), $('st-tagtext'), '', t('connecting'));
+}
+function renderStatus(d, stale){
+  var bad = d.down > 0;
+  var okIco = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  var badIco = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/></svg>';
+  var headline = bad ? t(d.down === 1 ? 'down_one' : 'down_many').replace('{n}', d.down) : t('all_ok');
+  var sub = t('status_sub').replace('{up}', d.up).replace('{total}', d.total).replace('{time}', hhmm(d.fetched_at)) + (stale ? ' ' + t('offline_paren') : '');
+  var html = '<div class="banner' + (bad ? ' bad' : '') + '">' + (bad ? badIco : okIco) +
+    '<div><div class="big">' + esc(headline) + '</div><div class="sub">' + esc(sub) + '</div></div></div><div class="card">';
+  d.groups.forEach(function(g){
+    html += '<div class="grp"><div class="gname">' + esc(g.name) + '</div>';
+    g.monitors.forEach(function(m){
+      var k = STMAP[m.status] || '';
+      var isDown = m.status === 0 || m.status === 2;
+      var meta = [];
+      if (m.uptime24 != null){ var p = Math.round(m.uptime24 * 100 * 100) / 100; meta.push((p === 100 ? '100' : String(p)) + '%'); }
+      if (m.ping != null) meta.push(m.ping + ' ms');
+      var metaStr = meta.length ? meta.join(' · ') : t(m.status === -1 ? 'st_unknown' : 'st_' + m.status);
+      html += '<div class="mon' + (isDown ? ' isdown' : '') + '"><span class="dot ' + k + '"></span>' +
+        '<span class="nm">' + esc(m.name) + '</span><span class="meta">' + esc(metaStr) + '</span></div>';
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+  (d.incidents || []).forEach(function(i){ html += '<div class="incident"><b>' + esc(i.title) + '</b><br>' + esc(i.content) + '</div>'; });
+  $('st-body').innerHTML = html;
+  setTag($('st-tag'), $('st-tagtext'), stale ? 'warn' : 'live', (stale ? t('offline') : t('live')) + ' · ' + hhmm(d.fetched_at));
+  updateBadge(d.down);
+}
+function tickStatus(){
+  window.nextendo.serverStatus().then(function(res){
+    if (res && res.ok){ lastStatus = res.data; statusStale = false; renderStatus(res.data, false); }
+    else if (lastStatus){ statusStale = true; renderStatus(lastStatus, true); }
+    else setTag($('st-tag'), $('st-tagtext'), 'warn', t('unreachable'));
+  }).catch(function(){ if (lastStatus){ statusStale = true; renderStatus(lastStatus, true); } });
+}
+function updateBadge(down){
+  var btn = $('taskbar').querySelector('[data-tab="servers"]');
+  var old = btn.querySelector('.badge');
+  if (old) old.remove();
+  if (down > 0){ var b = document.createElement('span'); b.className = 'badge'; b.textContent = String(down); btn.appendChild(b); }
+}
+
+/* ------------------------------------------------ ONLINE */
+var lastOnline = null, onlineStale = false;
+function onlineLoading(){
+  $('on-list').innerHTML = '<div class="empty">' + esc(t('connecting')) + '</div>';
+  setTag($('on-tag'), $('on-tagtext'), '', t('connecting'));
+}
+function renderOnline(d, stale){
+  var jeux = (d.jeux || []).filter(function(j){ return j.joueurs > 0; });
+  var max = jeux.length ? jeux[0].joueurs : 1; if (max < 1) max = 1;
+  $('on-total').textContent = nfmt(d.total);
+  $('on-active').textContent = jeux.length;
+  $('on-list').innerHTML = jeux.length ? jeux.map(function(j){
+    var pct = Math.max(Math.round(j.joueurs / max * 100), 4);
+    var unit = j.joueurs === 1 ? t('player_one') : t('player_many');
+    return '<div class="p"><div class="row"><span class="g">' + esc(j.nom) + '</span>' +
+      '<span class="c">' + j.joueurs + ' <span class="u">' + esc(unit) + '</span></span></div>' +
+      '<div class="meter"><i style="width:' + pct + '%"></i></div></div>';
+  }).join('') : '<div class="empty">' + esc(t('no_data')) + '</div>';
+  setTag($('on-tag'), $('on-tagtext'), stale ? 'warn' : 'live', (stale ? t('offline') : t('live')) + ' · ' + hhmm(d.fetched_at));
+}
+function tickOnline(){
+  window.nextendo.online().then(function(res){
+    if (res && res.ok){ lastOnline = res.data; onlineStale = false; renderOnline(res.data, false); }
+    else if (lastOnline){ onlineStale = true; renderOnline(lastOnline, true); }
+    else setTag($('on-tag'), $('on-tagtext'), 'warn', t('unreachable'));
+  }).catch(function(){ if (lastOnline){ onlineStale = true; renderOnline(lastOnline, true); } });
+}
+
+/* ------------------------------------------------ FRIENDS */
+var frState = { checked:false, me:null, data:null, timer:null, accounts:[], adding:false };
+function showFriends(which){ $('fr-login').hidden = which !== 'login'; $('fr-app').hidden = which !== 'app'; }
+
+var authMode = 'login';   // 'login' | 'register'
+function setAuthMode(mode){
+  authMode = mode;
+  var reg = mode === 'register';
+  $('reg-username-row').hidden = !reg;
+  $('reg-extra').hidden = !reg;
+  $('login-title').textContent = reg ? t('create_account') : t('sign_in');
+  $('login-lede').textContent = reg ? t('register_lede') : t('login_lede');
+  $('login-btn').textContent = reg ? t('create_account') : t('sign_in');
+  $('mode-toggle').textContent = reg ? t('back_to_signin') : t('create_account');
+  $('email').autocomplete = reg ? 'email' : 'email';
+  $('password').autocomplete = reg ? 'new-password' : 'current-password';
+  $('login-msg').className = 'msg'; $('login-msg').textContent = '';
+  if (reg && !$('reg-country').options.length) populateRegCountry();
+}
+$('mode-toggle').addEventListener('click', function(){ setAuthMode(authMode === 'login' ? 'register' : 'login'); });
+
+async function populateRegCountry(){
+  try {
+    var r = await window.nextendo.countryList();
+    var list = (r && r.countries) || [];
+    var names = null;
+    try { names = new Intl.DisplayNames([LOCALE[S.lang] || 'en'], { type: 'region' }); } catch(_){}
+    var opts = list.map(function(c){ var n = c; try { if (names) n = names.of(c) || c; } catch(_){} return { c: c, n: n }; })
+      .sort(function(a, b){ return a.n.localeCompare(b.n, LOCALE[S.lang]); });
+    $('reg-country').innerHTML = '<option value="">' + esc(t('country_none')) + '</option>' +
+      opts.map(function(o){ return '<option value="' + o.c + '">' + esc(o.n) + ' (' + o.c + ')</option>'; }).join('');
+  } catch (_) {}
+}
+
+// password rule check, matching validatePassword() on the server
+function pwOk(pw){
+  return String(pw || '').length >= 8 && /[0-9]/.test(pw) && /[^A-Za-z0-9]/.test(pw);
+}
+
+function showLoginForm(adding){
+  frState.adding = !!adding;
+  $('email').value = ''; $('password').value = ''; $('password2').value = ''; $('reg-username').value = '';
+  updateUnameCount('reg-username', 'reg-uname-count');
+  $('login-msg').className = 'msg'; $('login-msg').textContent = '';
+  $('reg-username-msg').textContent = '';
+  $('login-cancel').hidden = !adding;
+  setAuthMode('login');
+  showFriends('login');
+}
+
+function renderAccountSwitcher(){
+  var sel = $('acct-sel');
+  var accts = frState.accounts || [];
+  if (accts.length < 2){ sel.hidden = true; sel.innerHTML = ''; return; }
+  sel.hidden = false;
+  sel.innerHTML = accts.map(function(a){
+    return '<option value="' + esc(a.id) + '"' + (a.current ? ' selected' : '') + '>' + esc(a.username || a.id) + '</option>';
+  }).join('');
+}
+
+var regUnameTimer = null;
+$('reg-username').addEventListener('input', function(){
+  clearTimeout(regUnameTimer);
+  var v = this.value.trim(), rm = $('reg-username-msg');
+  if (!/^[A-Za-z0-9_-]{3,16}$/.test(v)){ rm.className = 'msg' + (v ? ' err' : ''); rm.textContent = v ? t('uname_bad') : ''; return; }
+  rm.className = 'msg'; rm.textContent = '…';
+  regUnameTimer = setTimeout(async function(){
+    var r = await window.nextendo.usernameCheck(v);
+    if (r && r.ok){ rm.className = 'msg ' + (r.available ? 'ok' : 'err'); rm.textContent = r.available ? t('uname_free') : t('uname_taken'); }
+    else { rm.textContent = ''; }
+  }, 400);
+});
+
+$('login-form').addEventListener('submit', async function(e){
+  e.preventDefault();
+  var btn = $('login-btn'), m = $('login-msg');
+  m.className = 'msg'; m.textContent = '';
+
+  if (authMode === 'register'){
+    var u = $('reg-username').value.trim();
+    var email = $('email').value.trim();
+    var pw = $('password').value, pw2 = $('password2').value;
+    if (!/^[A-Za-z0-9_-]{3,16}$/.test(u)){ m.className = 'msg err'; m.textContent = t('uname_bad'); return; }
+    if (!pwOk(pw)){ m.className = 'msg err'; m.textContent = t('pw_rules'); return; }
+    if (pw !== pw2){ m.className = 'msg err'; m.textContent = t('pw_mismatch'); return; }
+    btn.disabled = true; btn.textContent = t('creating');
+    try {
+      var rr = await window.nextendo.register({ username: u, email: email, password: pw, country: $('reg-country').value });
+      if (rr && rr.ok){
+        $('password').value = ''; $('password2').value = '';
+        frState.me = rr.me;
+        frState.accounts = rr.accounts || frState.accounts;
+        frState.adding = false;
+        $('login-cancel').hidden = true;
+        m.className = 'msg ok'; m.textContent = t('account_created');
+        enterFriends(rr.me);
+      } else { m.className = 'msg err'; m.textContent = (rr && rr.error) || t('failed'); }
+    } catch (err) { m.className = 'msg err'; m.textContent = String(err && err.message || err); }
+    finally { btn.disabled = false; btn.textContent = t('create_account'); }
+    return;
+  }
+
+  btn.disabled = true; btn.textContent = t('signing_in');
+  try {
+    var res = await window.nextendo.login($('email').value.trim(), $('password').value);
+    if (res && res.ok){
+      $('password').value = '';
+      frState.me = res.me;
+      frState.accounts = res.accounts || frState.accounts;
+      frState.adding = false;
+      $('login-cancel').hidden = true;
+      enterFriends(res.me);
+    } else { m.className = 'msg err'; m.textContent = (res && res.error) || t('login_failed'); }
+  } catch (err) { m.className = 'msg err'; m.textContent = String(err && err.message || err); }
+  finally { btn.disabled = false; btn.textContent = t('sign_in'); }
+});
+
+$('login-cancel').addEventListener('click', function(){
+  frState.adding = false;
+  $('login-cancel').hidden = true;
+  setAuthMode('login');
+  if (frState.me) showFriends('app'); else showFriends('login');
+});
+
+$('addacct-btn').addEventListener('click', function(){ showLoginForm(true); });
+
+$('acct-sel').addEventListener('change', async function(){
+  var id = this.value;
+  $('fr-banner').hidden = true;
+  var res = await window.nextendo.accountsSwitch(id);
+  if (res && res.ok){
+    frState.me = res.me;
+    frState.accounts = res.accounts || frState.accounts;
+    if (typeof acctState !== 'undefined') acctState.loaded = false;
+    enterFriends(res.me);
+  } else if (res && res.signedOut){
+    frState.accounts = res.accounts || [];
+    frState.me = null;
+    showLoginForm(false);
+  } else {
+    $('fr-banner').hidden = false; $('fr-banner').textContent = (res && res.error) || t('failed');
+  }
+});
+
+function paintIdentity(me){
+  me = me || {};
+  $('my-pic').innerHTML = avatarHTML(me.avatar, me.username);
+  $('my-name').textContent = me.username || 'signed in';
+  var code = fmtCode(me.code);
+  $('my-fc').innerHTML = code ? esc(code) + ' <button type="button" id="copy-fc" title="Copy">⧉</button>' : '';
+  var cp = $('copy-fc');
+  if (cp) cp.addEventListener('click', function(){ try { navigator.clipboard.writeText(code); cp.textContent = '✓'; setTimeout(function(){ cp.textContent = '⧉'; }, 900); } catch(_){} });
+}
+function statusLine(f){
+  if (f.inGame) return { cls:'game', txt: t('playing') + ' ' + (f.gameName || f.gameDetail || '…') };
+  if (f.online) return { cls:'on', txt: t('online_word') };
+  return { cls:'', txt: t('offline_word') };
+}
+function friendRowHTML(f){
+  var st = statusLine(f);
+  var dot = f.inGame ? 'dot game' : (f.online ? 'dot on' : 'dot');
+  return '<div class="frow"><div class="av">' + avatarHTML(f.image, f.name) + '</div>' +
+    '<div class="nm"><div class="n">' + esc(f.name) + (f.favorite ? ' <span class="star">★</span>' : '') + '</div>' +
+    '<div class="s ' + st.cls + '">' + esc(st.txt) + '</div></div>' +
+    (f.code ? '<span class="fc">' + esc(fmtCode(f.code)) + '</span>' : '') +
+    '<span class="' + dot + '"></span></div>';
+}
+function requestRowHTML(r){
+  return '<div class="frow" data-pid="' + esc(r.pid) + '"><div class="av">' + avatarHTML(r.image, r.name) + '</div>' +
+    '<div class="nm"><div class="n">' + esc(r.name) + '</div><div class="s">' + esc(t('wants_to_add')) +
+    (r.code ? ' · ' + esc(fmtCode(r.code)) : '') + '</div></div>' +
+    '<div class="req"><button class="ok" data-accept>' + esc(t('accept')) + '</button>' +
+    '<button class="no" data-decline>' + esc(t('decline')) + '</button></div></div>';
+}
+function renderFriends(d){
+  if (d.me){ frState.me = d.me; paintIdentity(d.me); }
+  var c = d.counts || {};
+  $('fr-tally').innerHTML =
+    '<span class="chip">' + esc(t('tally_friends')) + ' <b>' + (c.total || 0) + '</b></span>' +
+    '<span class="chip on">' + esc(t('tally_online')) + ' <b>' + (c.online || 0) + '</b></span>' +
+    '<span class="chip game">' + esc(t('tally_ingame')) + ' <b>' + (c.inGame || 0) + '</b></span>';
+  var reqs = d.requests || [];
+  $('fr-requests-sec').hidden = reqs.length === 0;
+  $('fr-rlist').innerHTML = reqs.map(requestRowHTML).join('');
+  Array.prototype.forEach.call($('fr-rlist').querySelectorAll('.frow'), function(row){
+    var pid = row.getAttribute('data-pid');
+    row.querySelector('[data-accept]').addEventListener('click', async function(){ await window.nextendo.accept(pid); loadFriends(); });
+    row.querySelector('[data-decline]').addEventListener('click', async function(){ await window.nextendo.decline(pid); loadFriends(); });
+  });
+  var fr = d.friends || [];
+  $('fr-flist').innerHTML = fr.length ? fr.map(friendRowHTML).join('') : '<div class="empty">' + esc(t('no_friends')) + '</div>';
+}
+async function loadFriends(){
+  $('fr-banner').hidden = true;
+  var res = await window.nextendo.friends();
+  if (!res || !res.ok){
+    if (res && res.signedOut){
+      frState.me = null; frState.data = null;
+      window.nextendo.accountsList().then(function(r){ frState.accounts = (r && r.accounts) || []; });
+      showLoginForm(false); $('login-msg').className = 'msg err'; $('login-msg').textContent = t('session_expired'); return;
+    }
+    $('fr-banner').hidden = false; $('fr-banner').textContent = (res && res.error) || t('could_not_load');
+    return;
+  }
+  frState.data = res;
+  renderFriends(res);
+}
+function enterFriends(me){
+  frState.checked = true;
+  frState.adding = false;
+  $('login-cancel').hidden = true;
+  showFriends('app');
+  if (me) paintIdentity(me);
+  renderAccountSwitcher();
+  loadFriends();
+  if (frState.timer) clearInterval(frState.timer);
+  frState.timer = setInterval(function(){ if (S.tab === 'friends') loadFriends(); }, FRIENDS_MS);
+  if (typeof acctState !== 'undefined') { acctState.loaded = false; if (S.tab === 'settings') refreshAccount(); }
+  window.nextendo.accountsList().then(function(r){ if (r && r.ok){ frState.accounts = r.accounts; renderAccountSwitcher(); } });
+}
+async function ensureFriends(){
+  if (frState.checked) { if (frState.me) loadFriends(); return; }
+  frState.checked = true;
+  try {
+    var s = await window.nextendo.authStatus();
+    if (s && s.signedIn){ frState.me = s.me; enterFriends(s.me); return; }
+  } catch (_) {}
+  showLoginForm(false);
+}
+$('refresh-btn').addEventListener('click', loadFriends);
+$('logout-btn').addEventListener('click', async function(){
+  var res = await window.nextendo.logout();
+  if (typeof acctState !== 'undefined') acctState.loaded = false;
+  frState.accounts = (res && res.accounts) || [];
+  if (res && res.switchedTo){
+    frState.me = res.switchedTo;
+    enterFriends(res.switchedTo);
+  } else {
+    frState.me = null; frState.data = null;
+    if (frState.timer) { clearInterval(frState.timer); frState.timer = null; }
+    showLoginForm(false);
+    if (S.tab === 'settings') refreshAccount();
+  }
+});
+$('add-btn').addEventListener('click', async function(){
+  var m = $('add-msg'); m.className = 'msg';
+  var code = $('add-code').value.trim(); if (!code) return;
+  m.textContent = t('sending');
+  var res = await window.nextendo.addFriend(code);
+  if (res && res.ok){ m.className = 'msg ok'; m.textContent = t('request_sent'); $('add-code').value = ''; loadFriends(); }
+  else { m.className = 'msg err'; m.textContent = (res && res.error) || t('failed'); }
+});
+
+/* ------------------------------------------------ ACCOUNT SETTINGS */
+var SWATCH_COLORS = ['#1ca9e0','#e4404a','#36ce73','#8b5cf6','#f59e0b','#ec4899','#14b8a6','#eab308','#6366f1','#ef7c3a','#22d3ee','#64748b'];
+var acctState = { loaded:false, color:'', country:'', countries:null };
+var regionNames = null;
+try { regionNames = new Intl.DisplayNames([LOCALE[S.lang] || 'en'], { type: 'region' }); } catch(_){}
+
+function msg(el, text, kind){ el.className = 'msg' + (kind ? ' ' + kind : ''); el.textContent = text; }
+
+// compose a same-origin (data:) image over the chosen colour on a 256x256
+// canvas and return the bare base64 JPEG payload
+function composeAvatarB64(dataURI){
+  return new Promise(function(resolve, reject){
+    var img = new Image();
+    img.onload = function(){
+      var c = document.createElement('canvas'); c.width = 256; c.height = 256;
+      var g = c.getContext('2d');
+      g.fillStyle = acctState.color || '#1ca9e0'; g.fillRect(0, 0, 256, 256);
+      var s = Math.min(img.width, img.height);
+      g.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 256, 256);
+      resolve(c.toDataURL('image/jpeg', 0.9).split(',')[1] || '');
+    };
+    img.onerror = function(){ reject(new Error('bad image')); };
+    img.src = dataURI;
+  });
+}
+// downscale a picked image File to a 256x256 JPEG payload
+function fileToAvatarB64(file){
+  return new Promise(function(resolve, reject){
+    var fr = new FileReader();
+    fr.onerror = function(){ reject(new Error('read failed')); };
+    fr.onload = function(){ composeAvatarB64(fr.result).then(resolve, reject); };
+    fr.readAsDataURL(file);
+  });
+}
+
+/* ---- avatar gallery (Switch profile pictures, loaded from nextendo.network) ---- */
+var gal = { loaded:false, firmware:[], custom:[], base:'', which:'firmware', busy:false };
+
+function renderGalleryGrid(){
+  var list = gal.which === 'custom' ? gal.custom : gal.firmware;
+  $('avatar-grid').innerHTML = list.map(function(n){
+    return '<button type="button" data-n="' + n + '"><img loading="lazy" src="' + gal.base + n + '" alt=""></button>';
+  }).join('');
+  $('gallery-count').textContent = t('gallery_count').replace('{n}', gal.firmware.length + gal.custom.length);
+  Array.prototype.forEach.call($('gallery-tabs').children, function(b){
+    b.setAttribute('aria-pressed', String(b.dataset.g === gal.which));
+  });
+}
+async function openGallery(){
+  var wrap = $('gallery');
+  if (!wrap.hidden){ wrap.hidden = true; return; }
+  wrap.hidden = false;
+  if (!gal.loaded){
+    $('avatar-grid').innerHTML = '<div class="empty" style="grid-column:1/-1">' + esc(t('sending')) + '</div>';
+    var r = await window.nextendo.avatarsList();
+    if (!r || !r.ok){ $('avatar-grid').innerHTML = '<div class="empty" style="grid-column:1/-1">' + esc((r && r.error) || t('failed')) + '</div>'; return; }
+    gal.loaded = true; gal.firmware = r.firmware; gal.custom = r.custom; gal.base = r.base;
+  }
+  renderGalleryGrid();
+}
+$('gallery-btn').addEventListener('click', openGallery);
+$('gallery-tabs').addEventListener('click', function(e){
+  var b = e.target.closest('button'); if (!b) return;
+  gal.which = b.dataset.g; renderGalleryGrid();
+});
+$('avatar-grid').addEventListener('click', async function(e){
+  var b = e.target.closest('button[data-n]'); if (!b || gal.busy) return;
+  gal.busy = true;
+  Array.prototype.forEach.call(this.children, function(x){ x.setAttribute('aria-pressed', String(x === b)); });
+  var name = b.dataset.n, m = $('profile-msg');
+  msg(m, t('sending'));
+  try {
+    var img = await window.nextendo.avatarImage(name);
+    if (!img || !img.ok) throw new Error((img && img.error) || 'fetch failed');
+    var b64 = await composeAvatarB64(img.dataURI);
+    var r = await window.nextendo.profileSave({ image: b64, avatar: JSON.stringify({ char: name }) });
+    if (r && r.ok){
+      msg(m, t('saved'), 'ok');
+      var uri = r.image || ('data:image/jpeg;base64,' + b64);
+      $('acct-pic').innerHTML = '<img src="' + esc(uri) + '" alt="">';
+      if (frState.me){ frState.me.avatar = uri; paintIdentity(frState.me); }
+    } else msg(m, (r && r.error) || t('failed'), 'err');
+  } catch (err){ msg(m, String(err.message || err), 'err'); }
+  gal.busy = false;
+});
+
+function buildSwatches(){
+  $('swatches').innerHTML = SWATCH_COLORS.map(function(c){
+    return '<button type="button" data-c="' + c + '" style="background:' + c + '" aria-pressed="' + (c === acctState.color) + '"></button>';
+  }).join('');
+}
+$('swatches').addEventListener('click', async function(e){
+  var b = e.target.closest('button'); if (!b) return;
+  acctState.color = b.dataset.c;
+  buildSwatches();
+  var m = $('profile-msg'); msg(m, t('sending'));
+  var r = await window.nextendo.profileSave({ color: acctState.color });
+  msg(m, r && r.ok ? t('saved') : ((r && r.error) || t('failed')), r && r.ok ? 'ok' : 'err');
+});
+
+$('pic-btn').addEventListener('click', function(){ $('pic-file').click(); });
+$('pic-file').addEventListener('change', async function(){
+  var f = this.files && this.files[0]; if (!f) return;
+  var m = $('profile-msg'); msg(m, t('sending'));
+  try {
+    var b64 = await fileToAvatarB64(f);
+    // an uploaded photo clears the layer descriptor, exactly like the web client
+    var r = await window.nextendo.profileSave({ image: b64, avatar: '' });
+    if (r && r.ok){
+      msg(m, t('saved'), 'ok');
+      var uri = r.image || ('data:image/jpeg;base64,' + b64);
+      $('acct-pic').innerHTML = '<img src="' + esc(uri) + '" alt="">';
+      if (frState.me){ frState.me.avatar = uri; paintIdentity(frState.me); }
+    } else msg(m, (r && r.error) || t('failed'), 'err');
+  } catch (err){ msg(m, String(err.message || err), 'err'); }
+  this.value = '';
+});
+
+var unameTimer = null;
+// live "N / 16" counter for a username input
+var UNAME_MAX = 16;
+function updateUnameCount(inputId, countId){
+  var el = $(countId); if (!el) return;
+  var n = $(inputId).value.length;
+  el.textContent = n + ' / ' + UNAME_MAX;
+  el.className = 'ucount' + (n >= UNAME_MAX ? ' full' : (n > 0 && n < 3 ? ' bad' : ''));
+}
+$('uname').addEventListener('input', function(){
+  clearTimeout(unameTimer);
+  updateUnameCount('uname', 'uname-count');
+  var v = this.value.trim();
+  var m = $('uname-msg');
+  if (!/^[A-Za-z0-9_-]{3,16}$/.test(v)){ msg(m, v ? t('uname_bad') : '', v ? 'err' : ''); return; }
+  msg(m, '…');
+  unameTimer = setTimeout(async function(){
+    var r = await window.nextendo.usernameCheck(v);
+    if (r && r.ok) msg(m, r.available ? t('uname_free') : t('uname_taken'), r.available ? 'ok' : 'err');
+    else msg(m, '', '');
+  }, 400);
+});
+$('reg-username').addEventListener('input', function(){ updateUnameCount('reg-username', 'reg-uname-count'); });
+$('uname-btn').addEventListener('click', async function(){
+  var v = $('uname').value.trim(), m = $('uname-msg');
+  if (!/^[A-Za-z0-9_-]{3,16}$/.test(v)){ msg(m, t('uname_bad'), 'err'); return; }
+  msg(m, t('sending'));
+  var r = await window.nextendo.usernameSet(v);
+  if (r && r.ok){
+    msg(m, t('saved'), 'ok');
+    var newName = (r.account && r.account.username) || v;
+    if (frState.me){ frState.me.username = newName; paintIdentity(frState.me); }
+    if (r.accounts){ frState.accounts = r.accounts; renderAccountSwitcher(); }
+  } else msg(m, (r && r.error) || t('failed'), 'err');
+});
+
+function countryLabel(code){
+  var name = code;
+  try { if (regionNames) name = regionNames.of(code) || code; } catch(_){}
+  return name;
+}
+function setFlag(code){
+  $('country-flag').innerHTML = code
+    ? '<img src="https://flagcdn.com/w40/' + code.toLowerCase() + '.png" alt="" onerror="this.remove()">'
+    : '';
+}
+function buildCountrySelect(){
+  var list = acctState.countries || [];
+  var opts = list.map(function(c){ return { c: c, n: countryLabel(c) }; })
+    .sort(function(a, b){ return a.n.localeCompare(b.n, LOCALE[S.lang]); });
+  $('country-sel').innerHTML = '<option value="">' + esc(t('country_none')) + '</option>' +
+    opts.map(function(o){ return '<option value="' + o.c + '"' + (o.c === acctState.country ? ' selected' : '') + '>' + esc(o.n) + ' (' + o.c + ')</option>'; }).join('');
+  setFlag(acctState.country);
+}
+$('country-sel').addEventListener('change', async function(){
+  var code = this.value, m = $('country-msg');
+  setFlag(code);
+  if (!code) return;
+  msg(m, t('sending'));
+  var r = await window.nextendo.countrySet(code);
+  if (r && r.ok){ acctState.country = code; msg(m, t('saved'), 'ok'); }
+  else msg(m, (r && r.error) || t('failed'), 'err');
+});
+
+function fmtBytes(n){
+  if (n == null) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1048576).toFixed(1) + ' MB';
+}
+async function loadSaves(){
+  var box = $('saves-list');
+  var r = await window.nextendo.savesList();
+  if (!r || !r.ok){
+    if (r && r.signedOut){ refreshAccount(); return; }
+    box.innerHTML = '<div class="empty">' + esc((r && r.error) || t('failed')) + '</div>';
+    $('saves-quota').hidden = true;
+    return;
+  }
+  if (!r.eligible){
+    $('saves-quota').hidden = true;
+    box.innerHTML = '<div class="empty">' + esc(r.reasonCode === 'email' ? t('saves_gate_email') : t('saves_gate_discord')) + '</div>';
+    return;
+  }
+  $('saves-quota').hidden = false;
+  var pct = Math.max(0, Math.min(100, Math.round((r.totalSize / r.limit) * 100)));
+  $('saves-fill').style.width = pct + '%';
+  $('saves-used').textContent = fmtBytes(r.totalSize) + ' / ' + fmtBytes(r.limit);
+  $('saves-badge').hidden = !r.isBooster;
+  if (!r.saves.length){ box.innerHTML = '<div class="empty">' + esc(t('saves_none')) + '</div>'; return; }
+  box.innerHTML = r.saves.map(function(s){
+    return '<div class="srow2" data-tid="' + esc(s.titleId) + '" data-name="' + esc(s.name) + '">'
+      + '<div class="nm"><div class="n">' + esc(s.name) + '</div><div class="s">' + esc(s.titleId)
+      + (s.size != null ? ' · ' + fmtBytes(s.size) : '') + '</div></div>'
+      + '<div class="act"><button data-dl>' + esc(t('save_download')) + '</button>'
+      + '<button class="del" data-del>' + esc(t('save_delete')) + '</button></div></div>';
+  }).join('');
+  Array.prototype.forEach.call(box.querySelectorAll('.srow2'), function(row){
+    var tid = row.getAttribute('data-tid'), name = row.getAttribute('data-name');
+    row.querySelector('[data-dl]').addEventListener('click', async function(){
+      var b = this; var old = b.textContent; b.textContent = '…'; b.disabled = true;
+      var r2 = await window.nextendo.savesDownload(tid, name);
+      b.textContent = r2 && r2.ok ? '✓' : (r2 && r2.canceled ? old : '✕');
+      setTimeout(function(){ b.textContent = old; b.disabled = false; }, 1200);
+    });
+    row.querySelector('[data-del]').addEventListener('click', async function(){
+      if (!window.confirm(t('save_confirm').replace('{g}', name))) return;
+      var r2 = await window.nextendo.savesDelete(tid);
+      if (r2 && r2.ok) loadSaves();
+    });
+  });
+}
+
+async function loadMods(){
+  var box = $('mods-list');
+  var r = await window.nextendo.modsFavorites();
+  if (!r || !r.ok){
+    box.innerHTML = '<div class="empty">' + esc(t('mods_unavailable')) + '</div>';
+    return;
+  }
+  if (!r.mods.length){ box.innerHTML = '<div class="empty">' + esc(t('mods_none')) + '</div>'; return; }
+  box.innerHTML = r.mods.map(function(m){
+    return '<div class="srow2"><div class="nm"><div class="n">' + esc(m.name) + '</div>'
+      + '<div class="s">' + esc([m.game, m.author].filter(Boolean).join(' · ')) + '</div></div></div>';
+  }).join('');
+}
+
+async function refreshAccount(){
+  if (!frState.me && !frState.checked){
+    frState.checked = true;
+    try {
+      var s = await window.nextendo.authStatus();
+      if (s && s.signedIn){ frState.me = s.me; enterFriends(s.me); }
+    } catch (_) {}
+  }
+  var signedIn = !!frState.me;
+  $('acct-locked').hidden = signedIn;
+  $('acct').hidden = !signedIn;
+  if (!signedIn) return;
+
+  if (!acctState.loaded){
+    var p = await window.nextendo.profileGet();
+    if (p && p.ok){
+      acctState.loaded = true;
+      acctState.color = p.color || '';
+      acctState.country = (p.country || '').toUpperCase();
+      $('uname').value = p.username || '';
+      updateUnameCount('uname', 'uname-count');
+      $('acct-pic').innerHTML = p.image ? '<img src="' + esc(p.image) + '" alt="">' : esc(initial(p.username));
+    }
+    var cl = await window.nextendo.countryList();
+    acctState.countries = (cl && cl.countries) || [];
+  }
+  buildSwatches();
+  buildCountrySelect();
+  loadSaves();
+  loadMods();
+}
+
+/* ------------------------------------------------ boot */
+applyTheme();
+applyLang();
+setTab(S.tab);
+loadStartup();
+statusLoading(); onlineLoading();
+tickStatus(); setInterval(tickStatus, STATUS_MS);
+tickOnline(); setInterval(tickOnline, ONLINE_MS);
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Keychain group for the per-account bearer tokens (same idea as the
+       original app's keychain-access-groups). Xcode rewrites the prefix. -->
+  <key>keychain-access-groups</key>
+  <array>
+    <string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+  </array>
+
+  <!-- Uncomment for a sideload / TrollStore build (matches the original ipa,
+       which shipped get-task-allow=true). Leave commented for App Store / TestFlight. -->
+  <!-- <key>get-task-allow</key><true/> -->
+</dict>
+</plist>
