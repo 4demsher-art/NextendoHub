@@ -202,6 +202,13 @@ public:
         if (this->thumbnailView)
             this->thumbnailView->setScaleType(wide ? brls::ImageScaleType::SCALE
                                                    : brls::ImageScaleType::FIT);
+        // nvgCreateImageMem() doesn't finish uploading the texture within the
+        // same frame, so the first Image::layout() sees nvgImageSize()==0 ->
+        // a NaN aspect ratio -> the picture draws smeared at a garbage size
+        // and spot (every avatar piling up in one clump = the "muddled"
+        // gallery). Nothing marks the row dirty again once the texture *is*
+        // ready, so re-run our layout for a few frames to catch up.
+        this->settleFrames = 10;
     }
 
     void layout(NVGcontext* vg, brls::Style* style, brls::FontStash* stash) override {
@@ -215,9 +222,18 @@ public:
         }
     }
 
+    void frame(brls::FrameContext* ctx) override {
+        if (this->settleFrames > 0 && this->thumbnailView) {
+            this->invalidate(true);   // re-read nvgImageSize now the GL upload has landed
+            this->settleFrames--;
+        }
+        brls::ListItem::frame(ctx);
+    }
+
 private:
     std::string picture;
     bool wideThumb = false;
+    int  settleFrames = 0;
 };
 static std::string usernameError(const std::string& u) {           // "" == ok
     if (u.size() < 3 || u.size() > 16) return T("uname_len_rule");
@@ -680,11 +696,16 @@ public:
     }
     void frame(brls::FrameContext* ctx) override {
         {
+            // Apply a few per frame: each setPicture() creates a GL texture and
+            // makes the row re-layout for several frames, so draining dozens at
+            // once is a visible hitch.
             std::lock_guard<std::mutex> lk(mtx);
-            for (auto& pr : inbox)
+            for (int budget = 4; budget > 0 && next < (int)inbox.size(); budget--, next++) {
+                auto& pr = inbox[next];
                 if (pr.first >= 0 && pr.first < (int)rows.size() && !pr.second.empty())
                     rows[pr.first]->setPicture(pr.second);
-            inbox.clear();
+                pr.second.clear();
+            }
         }
         brls::List::frame(ctx);
     }
@@ -708,6 +729,7 @@ private:
     bool started = false;
     std::mutex mtx;
     std::vector<std::pair<int, std::string>> inbox;
+    int next = 0;                       // how far into inbox we've applied (UI thread only)
     std::atomic<bool> alive{true};
 };
 
