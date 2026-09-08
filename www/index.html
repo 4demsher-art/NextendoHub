@@ -48,16 +48,26 @@
     display:flex; flex-direction:column; height:100%;
   }
 
-  /* ---- stage : one tab visible, fills everything above the taskbar ---- */
+  /* ---- top bar : app icon + name, sits in the notch area so the top
+        doesn't read as empty ---- */
+  .appbar{
+    flex:none; display:flex; align-items:center; justify-content:center; gap:9px;
+    background:var(--raise); border-bottom:1px solid var(--glass-line);
+    padding:calc(env(safe-area-inset-top) + 9px) 14px 9px;
+    padding-left:max(14px, env(safe-area-inset-left));
+    padding-right:max(14px, env(safe-area-inset-right));
+  }
+  .appbar .applogo{width:26px; height:26px; border-radius:7px; flex:none; display:block}
+  .appbar .apptitle{font-family:var(--font-dis); font-weight:800; font-size:16px; letter-spacing:-.01em; color:var(--ink)}
+
+  /* ---- stage : one tab visible, fills everything between the bars ---- */
   .stage{position:relative; flex:1; min-height:0}
   .tab{position:absolute; inset:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
        /* vertically centre the content; `safe` falls back to top-aligned
           (and scrollable) when it's taller than the screen, so nothing is
           ever clipped out of reach */
        display:flex; flex-direction:column; align-items:center; justify-content:safe center;
-       /* keep clear of the notch / Dynamic Island up top and the home bar
-          + tab bar down low — this is why parts weren't visible */
-       padding:max(18px, calc(env(safe-area-inset-top) + 12px)) 20px max(20px, calc(env(safe-area-inset-bottom) + 12px));
+       padding:16px 20px max(18px, calc(env(safe-area-inset-bottom) + 10px));
        padding-left:max(20px, env(safe-area-inset-left));
        padding-right:max(20px, env(safe-area-inset-right))}
   .tab[hidden]{display:none}
@@ -74,7 +84,10 @@
      unlike transform:scale. */
   @media (max-width:480px){
     .wrap,.login-wrap{zoom:.86; max-width:none}
-    .tab{padding:max(12px, calc(env(safe-area-inset-top) + 8px)) 12px max(14px, calc(env(safe-area-inset-bottom) + 8px));
+    .appbar{padding:calc(env(safe-area-inset-top) + 7px) 12px 7px}
+    .appbar .applogo{width:23px; height:23px}
+    .appbar .apptitle{font-size:15px}
+    .tab{padding:12px 12px max(14px, calc(env(safe-area-inset-bottom) + 8px));
          padding-left:max(12px, env(safe-area-inset-left));
          padding-right:max(12px, env(safe-area-inset-right))}
   }
@@ -275,6 +288,11 @@
 </style>
 </head>
 <body>
+
+  <header class="appbar">
+    <img class="applogo" src="icon.png" width="128" height="128" alt="">
+    <span class="apptitle">Nextendo&nbsp;Hub</span>
+  </header>
 
   <div class="stage">
 
