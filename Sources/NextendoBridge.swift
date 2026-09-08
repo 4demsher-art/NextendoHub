@@ -261,7 +261,7 @@ final class NextendoBridge: NSObject, WKScriptMessageHandler {
             async let meR = req("https://nextendo.network/api/me", token: t2)
             async let prR = req("https://nextendo.network/api/profile", token: t2)
             let (me, pr) = try await (meR, prR)
-            let meObj = me.status == 200 ? shapeMe(me.json as? [String: Any], pr.json as? [String: Any]) : NSNull()
+            let meObj: Any = me.status == 200 ? shapeMe(me.json as? [String: Any], pr.json as? [String: Any]) : NSNull()
             return ["ok": true, "switchedTo": meObj, "accounts": Keychain.list()]
         }
         return ["ok": true, "accounts": []]
@@ -361,7 +361,10 @@ final class NextendoBridge: NSObject, WKScriptMessageHandler {
     private func friendsPost(_ path: String, _ body: [String: Any]) async throws -> Any {
         guard let t = token() else { return ["ok": false, "error": "Not signed in"] }
         let r = try await req("https://nextendo.network\(path)", method: "POST", body: body, token: t)
-        if r.status == 200 { return path == "/api/friends" ? ["ok": true, "data": r.json ?? NSNull()] : ["ok": true] }
+        if r.status == 200 {
+            if path == "/api/friends" { return ["ok": true, "data": r.json ?? NSNull()] }
+            return ["ok": true]
+        }
         return ["ok": false, "error": ((r.json as? [String: Any])?["error"] as? String) ?? "HTTP \(r.status)"]
     }
 
@@ -405,7 +408,7 @@ final class NextendoBridge: NSObject, WKScriptMessageHandler {
         guard r.status == 200 else { return ["ok": false, "error": ((r.json as? [String: Any])?["error"] as? String) ?? "HTTP \(r.status)"] }
         let check = try? await req("https://nextendo.network/api/profile", token: t)
         let saved = (check?.json as? [String: Any])?["profile"] as? [String: Any] ?? (r.json as? [String: Any])?["profile"] as? [String: Any]
-        return ["ok": true, "profile": saved ?? NSNull(), "image": imgURI(saved?["image"] ?? body["image"])]
+        return ["ok": true, "profile": saved.map { $0 as Any } ?? NSNull(), "image": imgURI(saved?["image"] ?? body["image"])]
     }
 
     private func usernameSet(_ a: [Any]) async throws -> Any {
@@ -476,8 +479,8 @@ final class NextendoBridge: NSObject, WKScriptMessageHandler {
         guard let t = token() else { return ["ok": false, "error": "Not signed in"] }
         let id = str(a, 0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? str(a, 0)
         let r = try await req("https://nextendo.network/api/save/\(id)", method: "DELETE", token: t)
-        return (r.status == 200 || r.status == 204) ? ["ok": true]
-            : ["ok": false, "error": ((r.json as? [String: Any])?["error"] as? String) ?? "HTTP \(r.status)"]
+        if r.status == 200 || r.status == 204 { return ["ok": true] }
+        return ["ok": false, "error": ((r.json as? [String: Any])?["error"] as? String) ?? "HTTP \(r.status)"]
     }
 
     /// Downloads the zip, writes it to a temp file, and presents the iOS share
