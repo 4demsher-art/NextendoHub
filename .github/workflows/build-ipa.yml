@@ -77,15 +77,19 @@ jobs:
         run: |
           {
             echo "## xcodebuild failed"
-            echo '### error / failure lines'
             echo '```'
-            grep -nE 'error:|fatal error|The following build commands failed|Command .* failed|ld: |could not|No such|is in a future|cannot be' xcodebuild.log | tail -n 120 || echo '(no matching lines)'
-            echo '```'
-            echo '### last 200 lines'
-            echo '```'
-            tail -n 200 xcodebuild.log
+            tail -n 250 xcodebuild.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          # Also surface it as annotations (the only channel readable without
+          # auth on a public repo). One line per annotation; errors first.
+          echo "===== matched error lines ====="
+          grep -nE 'error:|fatal error|The following build commands failed|Command .* failed|ld: |[Uu]ndefined symbol|No such file|cannot find|is unavailable|has no member|ambiguous|does not conform|Provisioning|requires a provisioning|CodeSign|Signing for|Asset|actool|Referenced from' xcodebuild.log \
+            | sed 's/\r$//' | tail -n 60 \
+            | while IFS= read -r l; do printf '::error::%s\n' "$l"; done
+          echo "===== last 40 lines as annotations ====="
+          tail -n 40 xcodebuild.log | sed 's/\r$//' \
+            | while IFS= read -r l; do printf '::warning::%s\n' "$l"; done
 
       - name: Upload build log
         if: always()
