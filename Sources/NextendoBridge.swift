@@ -240,7 +240,7 @@ final class NextendoBridge: NSObject, WKScriptMessageHandler {
     private func finishAuth(_ r: Resp, fallbackName: String) async throws -> Any {
         guard r.status == 200, let d = r.json as? [String: Any], let tok = d["token"] as? String else {
             let e = (r.json as? [String: Any])?["error"] as? String
-            return ["ok": false, "error": e ?? "Auth failed (\(r.status))"]
+            return ["ok": false, "error": e ?? "Auth failed (\(r.status))", "status": r.status]
         }
         async let meR = req("https://nextendo.network/api/me", token: tok)
         async let prR = req("https://nextendo.network/api/profile", token: tok)
@@ -365,7 +365,7 @@ final class NextendoBridge: NSObject, WKScriptMessageHandler {
             if path == "/api/friends" { return ["ok": true, "data": r.json ?? NSNull()] }
             return ["ok": true]
         }
-        return ["ok": false, "error": ((r.json as? [String: Any])?["error"] as? String) ?? "HTTP \(r.status)"]
+        return ["ok": false, "error": ((r.json as? [String: Any])?["error"] as? String) ?? "HTTP \(r.status)", "status": r.status]
     }
 
     // ======================================================================
@@ -405,7 +405,7 @@ final class NextendoBridge: NSObject, WKScriptMessageHandler {
             "avatar": f["avatar"] ?? cur["avatar"] ?? ""
         ]
         let r = try await req("https://nextendo.network/api/profile", method: "PUT", body: body, token: t)
-        guard r.status == 200 else { return ["ok": false, "error": ((r.json as? [String: Any])?["error"] as? String) ?? "HTTP \(r.status)"] }
+        guard r.status == 200 else { return ["ok": false, "error": ((r.json as? [String: Any])?["error"] as? String) ?? "HTTP \(r.status)", "status": r.status] }
         let check = try? await req("https://nextendo.network/api/profile", token: t)
         let saved = (check?.json as? [String: Any])?["profile"] as? [String: Any] ?? (r.json as? [String: Any])?["profile"] as? [String: Any]
         return ["ok": true, "profile": saved.map { $0 as Any } ?? NSNull(), "image": imgURI(saved?["image"] ?? body["image"])]
@@ -418,7 +418,7 @@ final class NextendoBridge: NSObject, WKScriptMessageHandler {
             return ["ok": false, "error": "Username must be 3–16 characters (letters, digits, _ or -)."]
         }
         let r = try await req("https://nextendo.network/api/username", method: "PUT", body: ["username": u], token: t)
-        guard r.status == 200 else { return ["ok": false, "error": ((r.json as? [String: Any])?["error"] as? String) ?? "HTTP \(r.status)"] }
+        guard r.status == 200 else { return ["ok": false, "error": ((r.json as? [String: Any])?["error"] as? String) ?? "HTTP \(r.status)", "status": r.status] }
         let acc = (r.json as? [String: Any])?["account"] as? [String: Any] ?? [:]
         let newName = (acc["username"] as? String) ?? u
         Keychain.setCurrentUsername(newName)
@@ -448,7 +448,7 @@ final class NextendoBridge: NSObject, WKScriptMessageHandler {
         guard c.range(of: #"^[A-Z]{2}$"#, options: .regularExpression) != nil else { return ["ok": false, "error": "Invalid country code."] }
         let r = try await req("https://nextendo.network/api/country", method: "POST", body: ["country": c], token: t)
         return r.status == 200 ? ["ok": true, "account": (r.json as? [String: Any])?["account"] ?? NSNull()]
-                               : ["ok": false, "error": ((r.json as? [String: Any])?["error"] as? String) ?? "HTTP \(r.status)"]
+                               : ["ok": false, "error": ((r.json as? [String: Any])?["error"] as? String) ?? "HTTP \(r.status)", "status": r.status]
     }
 
     // ======================================================================
@@ -480,7 +480,7 @@ final class NextendoBridge: NSObject, WKScriptMessageHandler {
         let id = str(a, 0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? str(a, 0)
         let r = try await req("https://nextendo.network/api/save/\(id)", method: "DELETE", token: t)
         if r.status == 200 || r.status == 204 { return ["ok": true] }
-        return ["ok": false, "error": ((r.json as? [String: Any])?["error"] as? String) ?? "HTTP \(r.status)"]
+        return ["ok": false, "error": ((r.json as? [String: Any])?["error"] as? String) ?? "HTTP \(r.status)", "status": r.status]
     }
 
     /// Downloads the zip, writes it to a temp file, and presents the iOS share

@@ -537,6 +537,7 @@ var I18N = {
     no_friends:"No friends yet. Add one by friend code above.",
     could_not_load:"Could not load friends.", session_expired:"Session expired — sign in again",
     request_sent:"Request sent.", failed:"Failed.", sending:"Sending…", signing_in:"Signing in…", login_failed:"Login failed.", add_account:"Add account", cancel:"Cancel", switch_hint:"Switch account", create_account:"Create account", back_to_signin:"Back to sign in", register_lede:"Create a new Nextendo Network account.", password_again:"Confirm password", pw_rules:"At least 8 characters, one digit and one special character.", pw_mismatch:"Passwords don’t match.", account_created:"Account created.", creating:"Creating…",
+    rate_limited:"Too many attempts — wait a minute, then try again.", email_taken:"That email already has an account.", email_bad:"Enter a valid email address.", server_error:"The server had a problem. Try again.", uname_ok_fmt:"Looks good.",
     acct_locked:"Sign in on the Friends tab to edit your profile, country and cloud saves.",
     acct_profile:"Profile", change_picture:"Upload photo", save:"Save", saved:"Saved.",
     gallery_btn:"Choose from gallery", gallery_switch:"Switch", gallery_custom:"Custom", gallery_count:"{n} avatars · loaded from nextendo.network",
@@ -570,6 +571,7 @@ var I18N = {
     no_friends:"Aucun ami. Ajoute-en un par code ami ci-dessus.",
     could_not_load:"Impossible de charger les amis.", session_expired:"Session expirée — reconnecte-toi",
     request_sent:"Demande envoyée.", failed:"Échec.", sending:"Envoi…", signing_in:"Connexion…", login_failed:"Échec de la connexion.", add_account:"Ajouter un compte", cancel:"Annuler", switch_hint:"Changer de compte", create_account:"Créer un compte", back_to_signin:"Retour à la connexion", register_lede:"Crée un nouveau compte Nextendo Network.", password_again:"Confirme le mot de passe", pw_rules:"Au moins 8 caractères, un chiffre et un caractère spécial.", pw_mismatch:"Les mots de passe ne correspondent pas.", account_created:"Compte créé.", creating:"Création…",
+    rate_limited:"Trop de tentatives — attends une minute puis réessaie.", email_taken:"Un compte existe déjà avec cet e-mail.", email_bad:"Entre une adresse e-mail valide.", server_error:"Le serveur a rencontré un problème. Réessaie.", uname_ok_fmt:"Ça semble bon.",
     acct_locked:"Connecte-toi dans l’onglet Amis pour modifier ton profil, ton pays et tes sauvegardes cloud.",
     acct_profile:"Profil", change_picture:"Importer une photo", save:"Enregistrer", saved:"Enregistré.",
     gallery_btn:"Choisir dans la galerie", gallery_switch:"Switch", gallery_custom:"Custom", gallery_count:"{n} avatars · chargés depuis nextendo.network",
@@ -603,6 +605,7 @@ var I18N = {
     no_friends:"Sin amigos todavía. Añade uno por código de amigo arriba.",
     could_not_load:"No se pudieron cargar los amigos.", session_expired:"Sesión caducada — inicia sesión de nuevo",
     request_sent:"Solicitud enviada.", failed:"Error.", sending:"Enviando…", signing_in:"Iniciando sesión…", login_failed:"Error al iniciar sesión.", add_account:"Añadir cuenta", cancel:"Cancelar", switch_hint:"Cambiar de cuenta", create_account:"Crear cuenta", back_to_signin:"Volver a iniciar sesión", register_lede:"Crea una cuenta nueva de Nextendo Network.", password_again:"Confirma la contraseña", pw_rules:"Al menos 8 caracteres, un dígito y un carácter especial.", pw_mismatch:"Las contraseñas no coinciden.", account_created:"Cuenta creada.", creating:"Creando…",
+    rate_limited:"Demasiados intentos — espera un minuto y vuelve a intentarlo.", email_taken:"Ya existe una cuenta con ese correo.", email_bad:"Introduce un correo válido.", server_error:"El servidor tuvo un problema. Inténtalo de nuevo.", uname_ok_fmt:"Buena pinta.",
     acct_locked:"Inicia sesión en la pestaña Amigos para editar tu perfil, país y guardados en la nube.",
     acct_profile:"Perfil", change_picture:"Subir foto", save:"Guardar", saved:"Guardado.",
     gallery_btn:"Elegir de la galería", gallery_switch:"Switch", gallery_custom:"Custom", gallery_count:"{n} avatares · cargados desde nextendo.network",
@@ -624,6 +627,24 @@ try {
 
 function t(k){ return (I18N[S.lang] && I18N[S.lang][k]) || I18N.en[k] || k; }
 function $(id){ return document.getElementById(id); }
+
+// The Nextendo API answers in French. Translate what it sends back into the
+// UI language; never show a raw foreign-language sentence. Plain-English text
+// from our own bridge (e.g. "Not signed in") is passed through unchanged.
+function apiError(raw, status){
+  var msg = String(raw == null ? '' : raw).trim();
+  var s = msg.toLowerCase();
+  if (status === 429 || /trop de tentative|too many|rate.?limit|demasiados intentos/.test(s)) return t('rate_limited');
+  if (/(mail|courriel|correo)/.test(s) && /(d[ée]j[àa]|already|existe|use|registered|utilis)/.test(s)) return t('email_taken');
+  if (/(mail|courriel|correo)/.test(s) && /(invalid|valide|v[áa]lid|format|incorrect)/.test(s)) return t('email_bad');
+  if (/(pseudo|username|utilisateur|usuario)/.test(s) && /(pris|taken|use|existe|utilis)/.test(s)) return t('uname_taken');
+  if (/(mot de passe|password|contrase)/.test(s)) return t('pw_rules');
+  if (status && status >= 500) return t('server_error');
+  var foreign = /[àâäéèêëïîôöùûüçœ]/i.test(msg) ||
+    /\b(trop de|d[ée]j[àa]|r[ée]essaie|essaie|mot de passe|utilisateur|adresse|compte|serveur|inconnu|invalide|nombre|contrase|correo)\b/.test(s);
+  if (foreign || !msg) return status ? (t('failed') + ' (' + status + ')') : t('failed');
+  return msg;  // already plain English (our bridge) → keep it
+}
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 function hhmm(iso){ try { var d = new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); } catch(e){ return ''; } }
 function nfmt(n){ try { return (n|0).toLocaleString(LOCALE[S.lang]); } catch(e){ return String(n|0); } }
@@ -828,17 +849,16 @@ function renderAccountSwitcher(){
   }).join('');
 }
 
-var regUnameTimer = null;
 $('reg-username').addEventListener('input', function(){
-  clearTimeout(regUnameTimer);
+  // The availability endpoint only does a real check for a signed-in user;
+  // during sign-up it always answers "available", so calling it here just
+  // spams the server (-> rate-limit errors) and shows a misleading green
+  // tick. Validate the format only; /api/register is the real check.
   var v = this.value.trim(), rm = $('reg-username-msg');
-  if (!/^[A-Za-z0-9_-]{3,16}$/.test(v)){ rm.className = 'msg' + (v ? ' err' : ''); rm.textContent = v ? t('uname_bad') : ''; return; }
-  rm.className = 'msg'; rm.textContent = '…';
-  regUnameTimer = setTimeout(async function(){
-    var r = await window.nextendo.usernameCheck(v);
-    if (r && r.ok){ rm.className = 'msg ' + (r.available ? 'ok' : 'err'); rm.textContent = r.available ? t('uname_free') : t('uname_taken'); }
-    else { rm.textContent = ''; }
-  }, 400);
+  if (!v){ rm.className = 'msg'; rm.textContent = ''; return; }
+  var okFmt = /^[A-Za-z0-9_-]{3,16}$/.test(v);
+  rm.className = 'msg ' + (okFmt ? 'ok' : 'err');
+  rm.textContent = okFmt ? t('uname_ok_fmt') : t('uname_bad');
 });
 
 $('login-form').addEventListener('submit', async function(e){
@@ -851,6 +871,7 @@ $('login-form').addEventListener('submit', async function(e){
     var email = $('email').value.trim();
     var pw = $('password').value, pw2 = $('password2').value;
     if (!/^[A-Za-z0-9_-]{3,16}$/.test(u)){ m.className = 'msg err'; m.textContent = t('uname_bad'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ m.className = 'msg err'; m.textContent = t('email_bad'); return; }
     if (!pwOk(pw)){ m.className = 'msg err'; m.textContent = t('pw_rules'); return; }
     if (pw !== pw2){ m.className = 'msg err'; m.textContent = t('pw_mismatch'); return; }
     btn.disabled = true; btn.textContent = t('creating');
@@ -864,8 +885,8 @@ $('login-form').addEventListener('submit', async function(e){
         $('login-cancel').hidden = true;
         m.className = 'msg ok'; m.textContent = t('account_created');
         enterFriends(rr.me);
-      } else { m.className = 'msg err'; m.textContent = (rr && rr.error) || t('failed'); }
-    } catch (err) { m.className = 'msg err'; m.textContent = String(err && err.message || err); }
+      } else { m.className = 'msg err'; m.textContent = apiError(rr && rr.error, rr && rr.status); }
+    } catch (err) { m.className = 'msg err'; m.textContent = t('server_error'); }
     finally { btn.disabled = false; btn.textContent = t('create_account'); }
     return;
   }
@@ -880,8 +901,8 @@ $('login-form').addEventListener('submit', async function(e){
       frState.adding = false;
       $('login-cancel').hidden = true;
       enterFriends(res.me);
-    } else { m.className = 'msg err'; m.textContent = (res && res.error) || t('login_failed'); }
-  } catch (err) { m.className = 'msg err'; m.textContent = String(err && err.message || err); }
+    } else { m.className = 'msg err'; m.textContent = (res && res.error) ? apiError(res.error, res.status) : t('login_failed'); }
+  } catch (err) { m.className = 'msg err'; m.textContent = t('server_error'); }
   finally { btn.disabled = false; btn.textContent = t('sign_in'); }
 });
 
@@ -908,7 +929,7 @@ $('acct-sel').addEventListener('change', async function(){
     frState.me = null;
     showLoginForm(false);
   } else {
-    $('fr-banner').hidden = false; $('fr-banner').textContent = (res && res.error) || t('failed');
+    $('fr-banner').hidden = false; $('fr-banner').textContent = apiError(res && res.error, res && res.status);
   }
 });
 
@@ -969,7 +990,7 @@ async function loadFriends(){
       window.nextendo.accountsList().then(function(r){ frState.accounts = (r && r.accounts) || []; });
       showLoginForm(false); $('login-msg').className = 'msg err'; $('login-msg').textContent = t('session_expired'); return;
     }
-    $('fr-banner').hidden = false; $('fr-banner').textContent = (res && res.error) || t('could_not_load');
+    $('fr-banner').hidden = false; $('fr-banner').textContent = (res && res.error) ? apiError(res.error, res.status) : t('could_not_load');
     return;
   }
   frState.data = res;
@@ -1018,7 +1039,7 @@ $('add-btn').addEventListener('click', async function(){
   m.textContent = t('sending');
   var res = await window.nextendo.addFriend(code);
   if (res && res.ok){ m.className = 'msg ok'; m.textContent = t('request_sent'); $('add-code').value = ''; loadFriends(); }
-  else { m.className = 'msg err'; m.textContent = (res && res.error) || t('failed'); }
+  else { m.className = 'msg err'; m.textContent = apiError(res && res.error, res && res.status); }
 });
 
 /* ------------------------------------------------ ACCOUNT SETTINGS */
@@ -1076,7 +1097,7 @@ async function openGallery(){
   if (!gal.loaded){
     $('avatar-grid').innerHTML = '<div class="empty" style="grid-column:1/-1">' + esc(t('sending')) + '</div>';
     var r = await window.nextendo.avatarsList();
-    if (!r || !r.ok){ $('avatar-grid').innerHTML = '<div class="empty" style="grid-column:1/-1">' + esc((r && r.error) || t('failed')) + '</div>'; return; }
+    if (!r || !r.ok){ $('avatar-grid').innerHTML = '<div class="empty" style="grid-column:1/-1">' + esc(apiError(r && r.error, r && r.status)) + '</div>'; return; }
     gal.loaded = true; gal.firmware = r.firmware; gal.custom = r.custom; gal.base = r.base;
   }
   renderGalleryGrid();
@@ -1102,7 +1123,7 @@ $('avatar-grid').addEventListener('click', async function(e){
       var uri = r.image || ('data:image/jpeg;base64,' + b64);
       $('acct-pic').innerHTML = '<img src="' + esc(uri) + '" alt="">';
       if (frState.me){ frState.me.avatar = uri; paintIdentity(frState.me); }
-    } else msg(m, (r && r.error) || t('failed'), 'err');
+    } else msg(m, apiError(r && r.error, r && r.status), 'err');
   } catch (err){ msg(m, String(err.message || err), 'err'); }
   gal.busy = false;
 });
@@ -1118,7 +1139,7 @@ $('swatches').addEventListener('click', async function(e){
   buildSwatches();
   var m = $('profile-msg'); msg(m, t('sending'));
   var r = await window.nextendo.profileSave({ color: acctState.color });
-  msg(m, r && r.ok ? t('saved') : ((r && r.error) || t('failed')), r && r.ok ? 'ok' : 'err');
+  msg(m, r && r.ok ? t('saved') : (apiError(r && r.error, r && r.status)), r && r.ok ? 'ok' : 'err');
 });
 
 $('pic-btn').addEventListener('click', function(){ $('pic-file').click(); });
@@ -1134,7 +1155,7 @@ $('pic-file').addEventListener('change', async function(){
       var uri = r.image || ('data:image/jpeg;base64,' + b64);
       $('acct-pic').innerHTML = '<img src="' + esc(uri) + '" alt="">';
       if (frState.me){ frState.me.avatar = uri; paintIdentity(frState.me); }
-    } else msg(m, (r && r.error) || t('failed'), 'err');
+    } else msg(m, apiError(r && r.error, r && r.status), 'err');
   } catch (err){ msg(m, String(err.message || err), 'err'); }
   this.value = '';
 });
@@ -1172,7 +1193,7 @@ $('uname-btn').addEventListener('click', async function(){
     var newName = (r.account && r.account.username) || v;
     if (frState.me){ frState.me.username = newName; paintIdentity(frState.me); }
     if (r.accounts){ frState.accounts = r.accounts; renderAccountSwitcher(); }
-  } else msg(m, (r && r.error) || t('failed'), 'err');
+  } else msg(m, apiError(r && r.error, r && r.status), 'err');
 });
 
 function countryLabel(code){
@@ -1200,7 +1221,7 @@ $('country-sel').addEventListener('change', async function(){
   msg(m, t('sending'));
   var r = await window.nextendo.countrySet(code);
   if (r && r.ok){ acctState.country = code; msg(m, t('saved'), 'ok'); }
-  else msg(m, (r && r.error) || t('failed'), 'err');
+  else msg(m, apiError(r && r.error, r && r.status), 'err');
 });
 
 function fmtBytes(n){
@@ -1214,7 +1235,7 @@ async function loadSaves(){
   var r = await window.nextendo.savesList();
   if (!r || !r.ok){
     if (r && r.signedOut){ refreshAccount(); return; }
-    box.innerHTML = '<div class="empty">' + esc((r && r.error) || t('failed')) + '</div>';
+    box.innerHTML = '<div class="empty">' + esc(apiError(r && r.error, r && r.status)) + '</div>';
     $('saves-quota').hidden = true;
     return;
   }
