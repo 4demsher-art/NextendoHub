@@ -537,7 +537,7 @@ var I18N = {
     no_friends:"No friends yet. Add one by friend code above.",
     could_not_load:"Could not load friends.", session_expired:"Session expired — sign in again",
     request_sent:"Request sent.", failed:"Failed.", sending:"Sending…", signing_in:"Signing in…", login_failed:"Login failed.", add_account:"Add account", cancel:"Cancel", switch_hint:"Switch account", create_account:"Create account", back_to_signin:"Back to sign in", register_lede:"Create a new Nextendo Network account.", password_again:"Confirm password", pw_rules:"At least 8 characters, one digit and one special character.", pw_mismatch:"Passwords don’t match.", account_created:"Account created.", creating:"Creating…",
-    rate_limited:"Too many attempts — wait a minute, then try again.", email_taken:"That email already has an account.", email_bad:"Enter a valid email address.", server_error:"The server had a problem. Try again.", uname_ok_fmt:"Looks good.",
+    rate_limited:"Too many attempts — wait a minute, then try again.", signup_gated:"Sign-up isn't available in the app (the site uses a captcha). Create your account on the site, then come back and sign in:", email_taken:"That email already has an account.", email_bad:"Enter a valid email address.", server_error:"The server had a problem. Try again.", uname_ok_fmt:"Looks good.",
     acct_locked:"Sign in on the Friends tab to edit your profile, country and cloud saves.",
     acct_profile:"Profile", change_picture:"Upload photo", save:"Save", saved:"Saved.",
     gallery_btn:"Choose from gallery", gallery_switch:"Switch", gallery_custom:"Custom", gallery_count:"{n} avatars · loaded from nextendo.network",
@@ -571,7 +571,7 @@ var I18N = {
     no_friends:"Aucun ami. Ajoute-en un par code ami ci-dessus.",
     could_not_load:"Impossible de charger les amis.", session_expired:"Session expirée — reconnecte-toi",
     request_sent:"Demande envoyée.", failed:"Échec.", sending:"Envoi…", signing_in:"Connexion…", login_failed:"Échec de la connexion.", add_account:"Ajouter un compte", cancel:"Annuler", switch_hint:"Changer de compte", create_account:"Créer un compte", back_to_signin:"Retour à la connexion", register_lede:"Crée un nouveau compte Nextendo Network.", password_again:"Confirme le mot de passe", pw_rules:"Au moins 8 caractères, un chiffre et un caractère spécial.", pw_mismatch:"Les mots de passe ne correspondent pas.", account_created:"Compte créé.", creating:"Création…",
-    rate_limited:"Trop de tentatives — attends une minute puis réessaie.", email_taken:"Un compte existe déjà avec cet e-mail.", email_bad:"Entre une adresse e-mail valide.", server_error:"Le serveur a rencontré un problème. Réessaie.", uname_ok_fmt:"Ça semble bon.",
+    rate_limited:"Trop de tentatives — attends une minute puis réessaie.", signup_gated:"L'inscription n'est pas possible depuis l'app (le site utilise un captcha). Crée ton compte sur le site, puis reviens te connecter :", email_taken:"Un compte existe déjà avec cet e-mail.", email_bad:"Entre une adresse e-mail valide.", server_error:"Le serveur a rencontré un problème. Réessaie.", uname_ok_fmt:"Ça semble bon.",
     acct_locked:"Connecte-toi dans l’onglet Amis pour modifier ton profil, ton pays et tes sauvegardes cloud.",
     acct_profile:"Profil", change_picture:"Importer une photo", save:"Enregistrer", saved:"Enregistré.",
     gallery_btn:"Choisir dans la galerie", gallery_switch:"Switch", gallery_custom:"Custom", gallery_count:"{n} avatars · chargés depuis nextendo.network",
@@ -605,7 +605,7 @@ var I18N = {
     no_friends:"Sin amigos todavía. Añade uno por código de amigo arriba.",
     could_not_load:"No se pudieron cargar los amigos.", session_expired:"Sesión caducada — inicia sesión de nuevo",
     request_sent:"Solicitud enviada.", failed:"Error.", sending:"Enviando…", signing_in:"Iniciando sesión…", login_failed:"Error al iniciar sesión.", add_account:"Añadir cuenta", cancel:"Cancelar", switch_hint:"Cambiar de cuenta", create_account:"Crear cuenta", back_to_signin:"Volver a iniciar sesión", register_lede:"Crea una cuenta nueva de Nextendo Network.", password_again:"Confirma la contraseña", pw_rules:"Al menos 8 caracteres, un dígito y un carácter especial.", pw_mismatch:"Las contraseñas no coinciden.", account_created:"Cuenta creada.", creating:"Creando…",
-    rate_limited:"Demasiados intentos — espera un minuto y vuelve a intentarlo.", email_taken:"Ya existe una cuenta con ese correo.", email_bad:"Introduce un correo válido.", server_error:"El servidor tuvo un problema. Inténtalo de nuevo.", uname_ok_fmt:"Buena pinta.",
+    rate_limited:"Demasiados intentos — espera un minuto y vuelve a intentarlo.", signup_gated:"El registro no está disponible desde la app (el sitio usa un captcha). Crea tu cuenta en el sitio y luego vuelve para iniciar sesión:", email_taken:"Ya existe una cuenta con ese correo.", email_bad:"Introduce un correo válido.", server_error:"El servidor tuvo un problema. Inténtalo de nuevo.", uname_ok_fmt:"Buena pinta.",
     acct_locked:"Inicia sesión en la pestaña Amigos para editar tu perfil, país y guardados en la nube.",
     acct_profile:"Perfil", change_picture:"Subir foto", save:"Guardar", saved:"Guardado.",
     gallery_btn:"Elegir de la galería", gallery_switch:"Switch", gallery_custom:"Custom", gallery_count:"{n} avatares · cargados desde nextendo.network",
@@ -635,13 +635,13 @@ function apiError(raw, status){
   var msg = String(raw == null ? '' : raw).trim();
   var s = msg.toLowerCase();
   if (status === 429 || /trop de tentative|too many|rate.?limit|demasiados intentos/.test(s)) return t('rate_limited');
+  if (status === 401 || /identifiant|incorrect|mauvais|wrong (login|password|credential)|invalid credential/.test(s)) return t('login_failed');
   if (/(mail|courriel|correo)/.test(s) && /(d[ée]j[àa]|already|existe|use|registered|utilis)/.test(s)) return t('email_taken');
   if (/(mail|courriel|correo)/.test(s) && /(invalid|valide|v[áa]lid|format|incorrect)/.test(s)) return t('email_bad');
   if (/(pseudo|username|utilisateur|usuario)/.test(s) && /(pris|taken|use|existe|utilis)/.test(s)) return t('uname_taken');
   if (/(mot de passe|password|contrase)/.test(s)) return t('pw_rules');
   if (status && status >= 500) return t('server_error');
-  var foreign = /[àâäéèêëïîôöùûüçœ]/i.test(msg) ||
-    /\b(trop de|d[ée]j[àa]|r[ée]essaie|essaie|mot de passe|utilisateur|adresse|compte|serveur|inconnu|invalide|nombre|contrase|correo)\b/.test(s);
+  var foreign = /[àâäéèêëïîôöùûüçœ]/i.test(msg) || /\b(trop de|d[eé]j[àa]|r[eé]essaie|essaie|quelques|minutes?|tentatives?|mot de passe|utilisateur|identifiant|incorrects?|adresse|courriel|compte|connexion|serveur|inconnu|introuvable|invalide|manquant|requis|nombre|contrase|correo|usuario)\b/.test(s);
   if (foreign || !msg) return status ? (t('failed') + ' (' + status + ')') : t('failed');
   return msg;  // already plain English (our bridge) → keep it
 }
@@ -885,7 +885,18 @@ $('login-form').addEventListener('submit', async function(e){
         $('login-cancel').hidden = true;
         m.className = 'msg ok'; m.textContent = t('account_created');
         enterFriends(rr.me);
-      } else { m.className = 'msg err'; m.textContent = apiError(rr && rr.error, rr && rr.status); }
+      } else {
+        var st = rr && rr.status;
+        m.className = 'msg err';
+        if (st === 429 || /trop de tentative|too many/i.test(String(rr && rr.error || ''))){
+          // nextendo.network gates /api/register behind a Cloudflare Turnstile
+          // challenge, so a direct sign-up from the app is refused (429). Send
+          // the user to the website, then back here to sign in.
+          m.innerHTML = esc(t('signup_gated')) + ' <a href="https://nextendo.network/register" target="_blank" rel="noopener">nextendo.network/register</a>';
+        } else {
+          m.textContent = apiError(rr && rr.error, st);
+        }
+      }
     } catch (err) { m.className = 'msg err'; m.textContent = t('server_error'); }
     finally { btn.disabled = false; btn.textContent = t('create_account'); }
     return;
